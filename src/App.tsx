@@ -1,0 +1,336 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Bucket, Task, View } from './types';
+import { useTasks } from './store/useTasks';
+import { createList, createTask } from './store/tasksReducer';
+import { INBOX_LIST_ID } from './store/seed';
+import { BUCKET_LABELS, BUCKET_ORDER, bucketFor, daysFromToday, todayISO } from './lib/dates';
+import type { ParsedInput } from './lib/parseQuickAdd';
+import { QuickAdd } from './components/QuickAdd';
+import { Sidebar } from './components/Sidebar';
+import { TaskGroup } from './components/TaskGroup';
+import { TaskDetail } from './components/TaskDetail';
+import { EmptyState } from './components/EmptyState';
+import { Toast } from './components/Toast';
+import './styles/App.css';
+
+const UNDO_MS = 5000;
+
+const PRIORITY_RANK = { high: 0, medium: 1, low: 2, none: 3 } as const;
+
+/** Within a bucket: unfinished first, then priority, then earliest due date. */
+function compareTasks(a: Task, b: Task): number {
+  if (a.done !== b.done) return a.done ? 1 : -1;
+  const priority = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
+  if (priority !== 0) return priority;
+  if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+  return a.createdAt < b.createdAt ? 1 : -1;
+}
+
+const VIEW_TITLES: Record<View['kind'], string> = {
+  all: 'All tasks',
+  today: 'Today',
+  upcoming: 'Upcoming',
+  done: 'Completed',
+  list: '',
+};
+
+export default function App() {
+  const [state, dispatch] = useTasks();
+  const [view, setView] = useState<View>({ kind: 'today' });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [undo, setUndo] = useState<{ task: Task; index: number } | null>(null);
+
+  const quickAddRef = useRef<HTMLInputElement>(null);
+
+  const { tasks, lists } = state;
+
+  const activeList = view.kind === 'list' ? lists.find((l) => l.id === view.listId) : undefined;
+  // The list you're viewing becomes the default home for new tasks.
+  const defaultListId = activeList?.id ?? INBOX_LIST_ID;
+
+  const counts = useMemo(() => {
+    const byList: Record<string, number> = {};
+    let all = 0;
+    let today = 0;
+    let upcoming = 0;
+    let done = 0;
+
+    for (const task of tasks) {
+      if (task.done) {
+        done += 1;
+        continue;
+      }
+      all += 1;
+      byList[task.listId] = (byList[task.listId] ?? 0) + 1;
+      if (task.dueDate !== null) {
+        const delta = daysFromToday(task.dueDate);
+        if (delta <= 0) today += 1;
+        if (delta > 0) upcoming += 1;
+      }
+    }
+    return { all, today, upcoming, done, byList };
+  }, [tasks]);
+
+  const visibleTasks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return tasks.filter((task) => {
+      if (query) {
+        const haystack = `${task.title} ${task.notes}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      switch (view.kind) {
+        case 'all':
+          return true;
+        case 'done':
+          return task.done;
+        case 'today':
+          return task.done ? false : task.dueDate !== null && daysFromToday(task.dueDate) <= 0;
+        case 'upcoming':
+          return task.done ? false : task.dueDate !== null && daysFromToday(task.dueDate) > 0;
+        case 'list':
+          return task.listId === view.listId;
+        default:
+          return true;
+      }
+    });
+  }, [tasks, view, search]);
+
+  const grouped = useMemo(() => {
+    const open = new Map<Bucket, Task[]>();
+    const done: Task[] = [];
+    for (const task of visibleTasks) {
+      if (task.done) {
+        done.push(task);
+        continue;
+      }
+      const bucket = bucketFor(task.dueDate, task.done);
+      const list = open.get(bucket) ?? [];
+      list.push(task);
+      open.set(bucket, list);
+    }
+    for (const list of open.values()) list.sort(compareTasks);
+    done.sort((a, b) => (a.completedAt ?? '') < (b.completedAt ?? '') ? 1 : -1);
+    return { open, done };
+  }, [visibleTasks]);
+
+  const selectedTask = selectedId ? tasks.find((t) => t.id === selectedId) ?? null : null;
+
+  // A task can vanish from under the drawer (deleted, or cleared) — close it.
+  useEffect(() => {
+    if (selectedId && !selectedTask) setSelectedId(null);
+  }, [selectedId, selectedTask]);
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      const index = tasks.findIndex((t) => t.id === id);
+      if (index === -1) return;
+      setUndo({ task: tasks[index], index });
+      dispatch({ type: 'delete-task', id });
+    },
+    [tasks, dispatch],
+  );
+
+  useEffect(() => {
+    if (!undo) return;
+    const timer = window.setTimeout(() => setUndo(null), UNDO_MS);
+    return () => window.clearTimeout(timer);
+  }, [undo]);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement;
+
+      if (event.key === '/' && !typing) {
+        event.preventDefault();
+        quickAddRef.current?.focus();
+        return;
+      }
+      // Escape closes even from inside a field — the drawer is mostly inputs, so
+      // requiring a click-out first would make the shortcut useless there.
+      if (event.key === 'Escape') {
+        if (typing) target?.blur();
+        setSelectedId(null);
+        setSidebarOpen(false);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  function handleAdd(parsed: ParsedInput) {
+    // Adding from the Today view without saying a date means "today".
+    const task = createTask({
+      title: parsed.title,
+      dueDate: parsed.dueDate ?? (view.kind === 'today' ? todayISO() : null),
+      priority: parsed.priority,
+      listId: parsed.listId ?? defaultListId,
+    });
+    dispatch({ type: 'add-task', task });
+  }
+
+  const title = activeList ? activeList.name : VIEW_TITLES[view.kind];
+  const openCount = visibleTasks.filter((t) => !t.done).length;
+  const hasAnything = visibleTasks.length > 0;
+
+  return (
+    <div className={`app${selectedTask ? ' has-detail' : ''}`}>
+      <Sidebar
+        lists={lists}
+        view={view}
+        counts={counts}
+        isOpen={sidebarOpen}
+        onSelect={setView}
+        onClose={() => setSidebarOpen(false)}
+        onAddList={(name) => {
+          const list = createList(name, lists);
+          dispatch({ type: 'add-list', list });
+          setView({ kind: 'list', listId: list.id });
+        }}
+        onDeleteList={(id) => {
+          dispatch({ type: 'delete-list', id });
+          if (view.kind === 'list' && view.listId === id) setView({ kind: 'all' });
+        }}
+      />
+
+      <main className="main">
+        <header className="main__header">
+          <button
+            type="button"
+            className="main__menu"
+            aria-label="Open lists"
+            onClick={() => setSidebarOpen(true)}
+          >
+            ☰
+          </button>
+          <div className="main__heading">
+            <h1>
+              {activeList && (
+                <span className="main__dot" style={{ background: activeList.color }} />
+              )}
+              {title}
+            </h1>
+            <p className="main__subtitle">
+              {openCount === 0 ? 'Nothing left here' : `${openCount} open`}
+            </p>
+          </div>
+          <input
+            type="search"
+            className="main__search"
+            placeholder="Search"
+            aria-label="Search tasks"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </header>
+
+        {view.kind !== 'done' && (
+          <QuickAdd
+            lists={lists}
+            defaultListId={defaultListId}
+            inputRef={quickAddRef}
+            onAdd={handleAdd}
+          />
+        )}
+
+        <div className="main__scroll">
+          {!hasAnything && (
+            <EmptyState
+              title={search ? 'No matches' : 'All clear'}
+              hint={
+                search
+                  ? 'Try a different word.'
+                  : 'Add a task above — dates and priorities are parsed as you type.'
+              }
+            />
+          )}
+
+          {BUCKET_ORDER.map((bucket) => (
+            <TaskGroup
+              key={bucket}
+              label={BUCKET_LABELS[bucket]}
+              tone={bucket === 'overdue' ? 'danger' : 'default'}
+              tasks={grouped.open.get(bucket) ?? []}
+              lists={lists}
+              selectedId={selectedId}
+              showListChip={view.kind !== 'list'}
+              onToggle={(id) => dispatch({ type: 'toggle-task', id })}
+              onOpen={setSelectedId}
+              onDelete={handleDelete}
+            />
+          ))}
+
+          {grouped.done.length > 0 && (
+            <TaskGroup
+              label="Completed"
+              tasks={grouped.done}
+              lists={lists}
+              selectedId={selectedId}
+              showListChip={view.kind !== 'list'}
+              collapsed={view.kind === 'done' ? false : !showCompleted}
+              onToggleCollapse={
+                view.kind === 'done' ? undefined : () => setShowCompleted((v) => !v)
+              }
+              onToggle={(id) => dispatch({ type: 'toggle-task', id })}
+              onOpen={setSelectedId}
+              onDelete={handleDelete}
+            />
+          )}
+
+          {grouped.done.length > 0 && (showCompleted || view.kind === 'done') && (
+            <button
+              type="button"
+              className="clear-completed"
+              onClick={() => dispatch({ type: 'clear-completed' })}
+            >
+              Clear completed
+            </button>
+          )}
+        </div>
+      </main>
+
+      {selectedTask && (
+        <TaskDetail
+          task={selectedTask}
+          lists={lists}
+          onClose={() => setSelectedId(null)}
+          onPatch={(patch) => dispatch({ type: 'update-task', id: selectedTask.id, patch })}
+          onToggle={() => dispatch({ type: 'toggle-task', id: selectedTask.id })}
+          onDelete={() => handleDelete(selectedTask.id)}
+          onAddSubtask={(subtaskTitle) =>
+            dispatch({
+              type: 'add-subtask',
+              taskId: selectedTask.id,
+              title: subtaskTitle,
+              subtaskId: crypto.randomUUID(),
+            })
+          }
+          onToggleSubtask={(subtaskId) =>
+            dispatch({ type: 'toggle-subtask', taskId: selectedTask.id, subtaskId })
+          }
+          onDeleteSubtask={(subtaskId) =>
+            dispatch({ type: 'delete-subtask', taskId: selectedTask.id, subtaskId })
+          }
+        />
+      )}
+
+      {undo && (
+        <Toast
+          message={`Deleted “${undo.task.title}”`}
+          actionLabel="Undo"
+          onAction={() => {
+            dispatch({ type: 'restore-task', task: undo.task, index: undo.index });
+            setUndo(null);
+          }}
+          onDismiss={() => setUndo(null)}
+        />
+      )}
+    </div>
+  );
+}

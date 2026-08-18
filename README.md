@@ -1,0 +1,83 @@
+# Tasks
+
+An Any.do-style to-do app: a fast quick-add bar that understands plain English,
+tasks grouped into time buckets, lists, subtasks, and a detail drawer.
+
+React + TypeScript + Vite. No backend, no accounts — everything lives in
+`localStorage` on your device.
+
+## Running it
+
+```bash
+npm install
+npm run dev      # http://localhost:5173
+```
+
+Other scripts:
+
+```bash
+npm run build      # typecheck + production build into dist/
+npm run typecheck  # tsc --noEmit
+npm run preview    # serve the production build
+```
+
+## Quick add
+
+The add bar parses scheduling words out of what you type and strips them from the
+title, so `Buy milk tomorrow !high` becomes a task called **Buy milk**, due
+tomorrow, at high priority. A live preview under the field shows exactly what
+Enter will create.
+
+| You type | It picks up |
+| --- | --- |
+| `today`, `tonight`, `tomorrow`, `tmrw`, `yesterday` | that day |
+| `monday` … `sunday` (or `mon`, `tue`, …) | the next such day |
+| `next monday`, `next week`, `next month` | further out |
+| `in 3 days`, `in 2 weeks` | relative offsets |
+| `jan 15`, `15 jan`, `2026-01-15` | a specific date |
+| `!high` / `!med` / `!low`, or `!!!` / `!!` / `!` | priority |
+| `#work` | files it into a list of that name |
+
+Anything that doesn't match a rule is left in the title verbatim.
+
+## Views
+
+Tasks are bucketed by due date at render time — **Overdue**, **Today**,
+**Tomorrow**, **This week**, **Later**, **Someday** — so groups stay correct as
+the date rolls over rather than going stale. The sidebar has smart views (Today,
+Upcoming, All, Completed) plus your own lists, each with a live count of open
+tasks.
+
+Adding a task from the Today view with no date stated files it under today.
+
+## Keyboard
+
+- <kbd>/</kbd> — focus the add bar
+- <kbd>Enter</kbd> — create the task
+- <kbd>Esc</kbd> — close the detail drawer or sidebar
+
+## Data
+
+State is written to `localStorage` under `todo:v1:state`, debounced, and flushed
+when the tab closes. Reads validate every field: corrupt or hand-edited storage
+falls back to the seed content instead of a blank screen. Clearing site data
+resets the app to its sample tasks.
+
+## Layout
+
+```
+src/
+  types.ts                 Task, List, Bucket, View
+  lib/dates.ts             bucketing + local-date helpers
+  lib/parseQuickAdd.ts     natural-language parsing for the add bar
+  store/tasksReducer.ts    pure reducer, all state transitions
+  store/useTasks.ts        reducer + localStorage persistence
+  store/storage.ts         load/save with validation
+  store/seed.ts            first-run sample content
+  components/              Sidebar, QuickAdd, TaskGroup, TaskItem, TaskDetail, …
+  styles/                  design tokens (globals.css) + layout (App.css)
+```
+
+Colors are CSS custom properties, so dark mode is a token swap driven by
+`prefers-color-scheme`. Responsive down to 375px: the sidebar becomes a drawer
+and the detail pane a full-screen sheet.
