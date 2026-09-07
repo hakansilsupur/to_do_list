@@ -1,5 +1,11 @@
 /* ---------- Layout ---------- */
 
+/*
+ * Safe-area insets keep content clear of the Android status bar and gesture
+ * pill in the packaged app (index.html sets viewport-fit=cover). In a browser
+ * every env() below resolves to 0px, so the web layout is unchanged.
+ */
+
 .app {
   display: grid;
   grid-template-columns: 248px minmax(0, 1fr);
@@ -17,7 +23,9 @@
   display: flex;
   flex-direction: column;
   gap: 22px;
-  padding: 20px 12px;
+  padding: calc(20px + env(safe-area-inset-top)) 12px
+    calc(20px + env(safe-area-inset-bottom))
+    calc(12px + env(safe-area-inset-left));
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   overflow-y: auto;
@@ -229,7 +237,7 @@
 .main__scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 28px 60px;
+  padding: 6px 28px calc(60px + env(safe-area-inset-bottom));
 }
 
 /* ---------- Quick add ---------- */
@@ -848,7 +856,7 @@
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -901,6 +909,8 @@
     inset: 0;
     z-index: 50;
     border-left: none;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 
@@ -937,7 +947,7 @@
   }
 
   .main__header {
-    padding: 16px 16px 12px;
+    padding: calc(16px + env(safe-area-inset-top)) 16px 12px;
     flex-wrap: wrap;
   }
 
@@ -955,7 +965,7 @@
   }
 
   .main__scroll {
-    padding: 6px 16px 60px;
+    padding: 6px 16px calc(60px + env(safe-area-inset-bottom));
   }
 }
 

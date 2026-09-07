@@ -3,8 +3,8 @@
 An Any.do-style to-do app: a fast quick-add bar that understands plain English,
 tasks grouped into time buckets, lists, subtasks, and a detail drawer.
 
-React + TypeScript + Vite. No backend, no accounts — everything lives in
-`localStorage` on your device.
+React + TypeScript + Vite, packaged for Android with Capacitor. No backend, no
+accounts — everything lives in `localStorage` on your device.
 
 ## Running it
 
@@ -20,6 +20,21 @@ npm run build      # typecheck + production build into dist/
 npm run typecheck  # tsc --noEmit
 npm run preview    # serve the production build
 ```
+
+## Android APK
+
+Every push builds an installable APK. Grab it from **Actions → Android APK →**
+the latest run's `tasks-debug-apk` artifact, or push a `v*` tag to get one
+attached to a GitHub Release.
+
+To build one yourself (needs the Android SDK):
+
+```bash
+npm run android:apk   # → android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install it with `adb install -r <file>.apk`. Full details — signing, releases,
+versioning — are in [docs/ANDROID.md](docs/ANDROID.md).
 
 ## Quick add
 
@@ -66,9 +81,13 @@ resets the app to its sample tasks.
 ## Layout
 
 ```
+android/                   native Capacitor project (generated, committed)
+capacitor.config.ts        app id, name, web asset dir
+scripts/make-icon.mjs      renders the launcher icon from the app's check mark
 src/
   types.ts                 Task, List, Bucket, View
   lib/dates.ts             bucketing + local-date helpers
+  lib/native.ts            back button, status bar — no-ops in a browser
   lib/parseQuickAdd.ts     natural-language parsing for the add bar
   store/tasksReducer.ts    pure reducer, all state transitions
   store/useTasks.ts        reducer + localStorage persistence

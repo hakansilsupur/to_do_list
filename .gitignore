@@ -6,3 +6,9 @@ dist-ssr
 .vite
 npm-debug.log*
 yarn-error.log*
+
+# Android signing — a committed keystore is an unrevocable key compromise
+*.jks
+*.keystore
+keystore.properties
+android/local.properties

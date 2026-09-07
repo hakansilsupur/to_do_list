@@ -5,6 +5,7 @@ import { createList, createTask } from './store/tasksReducer';
 import { INBOX_LIST_ID } from './store/seed';
 import { BUCKET_LABELS, BUCKET_ORDER, bucketFor, daysFromToday, todayISO } from './lib/dates';
 import type { ParsedInput } from './lib/parseQuickAdd';
+import { useNativeShell, type BackHandler } from './lib/native';
 import { QuickAdd } from './components/QuickAdd';
 import { Sidebar } from './components/Sidebar';
 import { TaskGroup } from './components/TaskGroup';
@@ -44,6 +45,28 @@ export default function App() {
   const [undo, setUndo] = useState<{ task: Task; index: number } | null>(null);
 
   const quickAddRef = useRef<HTMLInputElement>(null);
+
+  // Android's Back button peels off one layer at a time. Refs keep the handler
+  // identity stable so the native listener isn't torn down on every keystroke,
+  // while still reading current state at the moment Back is pressed.
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const sidebarOpenRef = useRef(sidebarOpen);
+  sidebarOpenRef.current = sidebarOpen;
+
+  const handleBack = useCallback<BackHandler>(() => {
+    if (selectedIdRef.current !== null) {
+      setSelectedId(null);
+      return 'handled';
+    }
+    if (sidebarOpenRef.current) {
+      setSidebarOpen(false);
+      return 'handled';
+    }
+    return 'exit';
+  }, []);
+
+  useNativeShell({ onBack: handleBack });
 
   const { tasks, lists } = state;
 
