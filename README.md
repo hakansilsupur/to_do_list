@@ -45,10 +45,19 @@ releases and versioning.
 
 ## Quick add
 
-The add bar parses scheduling words out of what you type and strips them from the
+Start typing and a row of controls appears under the field: **Today**, **Tomorrow**
+or a date picker, plus **Low / Med / High**. Tap them to set a task's date and
+priority *before* creating it — no keywords needed, which matters if you write your
+tasks in a language the parser doesn't read.
+
+The bar also parses scheduling words out of what you type and strips them from the
 title, so `Buy milk tomorrow !high` becomes a task called **Buy milk**, due
 tomorrow, at high priority. A live preview under the field shows exactly what
 Enter will create.
+
+Typed words win over tapped chips — if `today` is in your title, the task is due
+today whatever was tapped, and the chips update to show that. The parser understands
+English only; the chips work whatever language you type in.
 
 | You type | It picks up |
 | --- | --- |

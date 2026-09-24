@@ -17,6 +17,30 @@ export type ParsedInput = {
   listId: string | null;
 };
 
+/** What the add bar's tappable controls are currently set to. */
+export type QuickAddDraft = {
+  dueDate: string | null;
+  priority: Priority;
+};
+
+export const EMPTY_DRAFT: QuickAddDraft = { dueDate: null, priority: 'none' };
+
+/**
+ * Combine what was typed with what was tapped.
+ *
+ * Typed wins. The title is visible and self-describing — if "today" is sitting
+ * in the text, the task is due today whatever was tapped beforehand. The chips
+ * fill in only the fields the text left unspecified, and the UI highlights this
+ * merged result rather than the raw selection, so the two never contradict.
+ */
+export function mergeQuickAdd(parsed: ParsedInput, draft: QuickAddDraft): ParsedInput {
+  return {
+    ...parsed,
+    dueDate: parsed.dueDate ?? draft.dueDate,
+    priority: parsed.priority !== 'none' ? parsed.priority : draft.priority,
+  };
+}
+
 const WEEKDAY_PATTERN = WEEKDAY_NAMES.map((d) => `${d}|${d.slice(0, 3)}`).join('|');
 const MONTH_PATTERN =
   'january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|' +

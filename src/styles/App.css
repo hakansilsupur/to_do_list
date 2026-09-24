@@ -307,6 +307,53 @@
   cursor: not-allowed;
 }
 
+.quick-add__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px 0;
+}
+
+/* Comfortably tappable on a phone — this row exists for touch, not the mouse. */
+.quick-add__controls .pill {
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.quick-add__controls .pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.quick-add__divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--border);
+}
+
+/* The native picker sits invisibly over the pill so the whole chip is the target. */
+.pill--date {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.quick-add__date-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.quick-add__date-input:disabled {
+  cursor: default;
+}
+
 .quick-add__preview {
   display: flex;
   flex-wrap: wrap;
@@ -315,6 +362,28 @@
   padding: 8px 14px 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+@media (max-width: 480px) {
+  /* Tighter gaps so Today / Tomorrow / Date fit one line on a narrow phone. */
+  .quick-add__controls {
+    gap: 5px;
+    padding: 10px 10px 0;
+  }
+
+  .quick-add__controls .pill {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  /* Break the line here instead of drawing a rule, so the priority pills start
+     their own row rather than one trailing up beside the dates. */
+  .quick-add__divider {
+    flex-basis: 100%;
+    height: 0;
+    margin: 0;
+    background: none;
+  }
 }
 
 .quick-add__preview-title {

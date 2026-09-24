@@ -2,7 +2,7 @@
  * Table tests for the two pure pieces: quick-add parsing and notification planning.
  * Bundled with esbuild so the real TypeScript source runs, no device needed.
  */
-import { parseQuickAdd } from '../src/lib/parseQuickAdd';
+import { EMPTY_DRAFT, mergeQuickAdd, parseQuickAdd } from '../src/lib/parseQuickAdd';
 import {
   formatReminder,
   nextOccurrence,
@@ -101,6 +101,47 @@ check('title intact', r5.title === 'Send invoice', `"${r5.title}"`);
 
 const r6 = parseQuickAdd('Email Mark about the deck', lists);
 check('plain text untouched', r6.title === 'Email Mark about the deck' && r6.reminder === null);
+
+// ---------- add-bar chips merged with typed text ----------
+
+const plain = parseQuickAdd('Ceza itiraz', lists);
+check('untouched chips change nothing',
+  JSON.stringify(mergeQuickAdd(plain, EMPTY_DRAFT)) === JSON.stringify(plain));
+
+const chipDate = mergeQuickAdd(plain, { dueDate: tomorrow, priority: 'none' });
+check('chip date fills an undated task', chipDate.dueDate === tomorrow);
+check('chip date leaves the title alone', chipDate.title === 'Ceza itiraz');
+
+const chipPriority = mergeQuickAdd(plain, { dueDate: null, priority: 'high' });
+check('chip priority applies when text has none', chipPriority.priority === 'high');
+
+// Typed beats tapped, for both fields, so the visible text is never contradicted.
+const typedDate = parseQuickAdd('Ceza itiraz today', lists);
+check('typed date beats the chip',
+  mergeQuickAdd(typedDate, { dueDate: tomorrow, priority: 'none' }).dueDate === today,
+  mergeQuickAdd(typedDate, { dueDate: tomorrow, priority: 'none' }).dueDate ?? 'null');
+
+const typedPriority = parseQuickAdd('Ceza itiraz !low', lists);
+check('typed priority beats the chip',
+  mergeQuickAdd(typedPriority, { dueDate: null, priority: 'high' }).priority === 'low');
+
+// Each field resolves on its own: typed date + chip priority must both survive.
+check('typed date and chip priority combine',
+  (() => {
+    const m = mergeQuickAdd(typedDate, { dueDate: null, priority: 'medium' });
+    return m.dueDate === today && m.priority === 'medium';
+  })());
+
+check('clearing the chips returns to unset',
+  (() => {
+    const m = mergeQuickAdd(plain, EMPTY_DRAFT);
+    return m.dueDate === null && m.priority === 'none';
+  })());
+
+// A reminder parsed out of the text must not be dropped by the merge.
+const typedReminder = parseQuickAdd('Ceza itiraz at 9am', lists);
+check('merge preserves a parsed reminder',
+  mergeQuickAdd(typedReminder, { dueDate: tomorrow, priority: 'high' }).reminder !== null);
 
 // ---------- notification planning ----------
 

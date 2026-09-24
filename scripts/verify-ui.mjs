@@ -16,6 +16,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DEV_URL = process.env.VERIFY_URL || 'http://127.0.0.1:5173/';
 const CHROMIUM = process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium';
+// Screenshots are opt-in so the script writes nothing unless asked:
+//   SHOTS=/some/dir npm run verify:ui
+const SHOTS = process.env.SHOTS || '';
+const shoot = (target, name) => (SHOTS ? target.screenshot({ path: `${SHOTS}/${name}` }) : null);
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -167,6 +171,71 @@ check('setting a reminder moves it out of Someday',
   (await groupOf('Sort out the loft')) !== 'Someday', `${await groupOf('Sort out the loft')}`);
 check('row chip reflects the repeat', (await loftChip.innerText()).includes('↻'));
 
+// ---------- add-bar date / priority controls ----------
+// The whole point of these: setting date and priority without typing keywords.
+await page.locator('.nav-item', { hasText: 'All tasks' }).click();
+await page.waitForTimeout(200);
+
+check('controls hidden until you type',
+  (await page.locator('.quick-add__controls').count()) === 0);
+
+await quickAdd().fill('Ceza itiraz');
+await page.waitForTimeout(150);
+check('controls appear once typing starts',
+  await page.locator('.quick-add__controls').isVisible());
+check('no chip is active for a bare title',
+  (await page.locator('.quick-add__controls .pill.is-active').count()) === 0);
+
+await page.locator('.quick-add__controls .pill', { hasText: 'Tomorrow' }).click();
+await page.waitForTimeout(150);
+check('tapping Tomorrow activates it',
+  (await page.locator('.quick-add__controls .pill', { hasText: 'Tomorrow' })
+    .getAttribute('aria-pressed')) === 'true');
+check('preview shows the tapped date',
+  (await page.locator('.quick-add__preview .chip').first().innerText()).includes('Tomorrow'));
+
+await page.locator('.quick-add__controls .pill', { hasText: 'High' }).click();
+await page.waitForTimeout(150);
+check('tapping High activates it',
+  (await page.locator('.quick-add__controls .pill', { hasText: 'High' })
+    .getAttribute('aria-pressed')) === 'true');
+
+await shoot(page, '20-quickadd-controls.png');
+await quickAdd().press('Enter');
+await page.waitForTimeout(250);
+
+check('task filed by chips alone, no keywords typed',
+  (await groupOf('Ceza itiraz')) === 'Tomorrow', `${await groupOf('Ceza itiraz')}`);
+const cezaRow = page.locator('.task', { hasText: 'Ceza itiraz' }).first();
+check('chip priority reached the task',
+  (await cezaRow.locator('.priority-dot--high').count()) === 1);
+check('title has no leftover keyword text',
+  (await page.locator('.task__title', { hasText: /^Ceza itiraz$/ }).count()) === 1);
+
+check('controls reset after adding',
+  (await page.locator('.quick-add__controls').count()) === 0);
+check('input is refocused for the next task',
+  await page.evaluate(() => document.activeElement?.classList.contains('quick-add__input')));
+
+// Typed text must win over a tapped chip, and the pills must show that.
+await quickAdd().fill('Kablotv basvur');
+await page.locator('.quick-add__controls .pill', { hasText: 'Tomorrow' }).click();
+await page.waitForTimeout(150);
+await quickAdd().fill('Kablotv basvur today');
+await page.waitForTimeout(200);
+check('typed date overrides the tapped chip',
+  (await page.locator('.quick-add__controls .pill', { hasText: 'Today' })
+    .getAttribute('aria-pressed')) === 'true');
+check('the overridden chip is no longer active',
+  (await page.locator('.quick-add__controls .pill', { hasText: 'Tomorrow' })
+    .getAttribute('aria-pressed')) === 'false');
+check('date pills disable when the text owns the date',
+  await page.locator('.quick-add__controls .pill', { hasText: 'Tomorrow' }).isDisabled());
+await quickAdd().press('Enter');
+await page.waitForTimeout(250);
+check('typed date wins on the created task',
+  (await groupOf('Kablotv basvur')) === 'Today', `${await groupOf('Kablotv basvur')}`);
+
 // ---------- persistence ----------
 await page.keyboard.press('Escape');
 await page.reload({ waitUntil: 'networkidle' });
@@ -257,6 +326,12 @@ await apkPage.locator('.quick-add__input').press('Enter');
 await apkPage.waitForTimeout(300);
 await apkPage.reload({ waitUntil: 'load' });
 await apkPage.waitForTimeout(600);
+// Assert from All tasks: "7pm" lands on today or tomorrow depending on the clock,
+// and the app opens on Today — checking there made this pass only before 19:00.
+await apkPage.locator('.main__menu').click();
+await apkPage.waitForTimeout(350);
+await apkPage.locator('.nav-item', { hasText: 'All tasks' }).click();
+await apkPage.waitForTimeout(300);
 check('reminder persists in the packaged build',
   (await apkPage.locator('.task', { hasText: 'Packaged reminder' }).first()
     .locator('.chip--reminder').count()) === 1);
@@ -272,6 +347,18 @@ await mp.goto(DEV_URL, { waitUntil: 'networkidle' });
 await mp.waitForTimeout(400);
 check('no horizontal overflow at 375px',
   (await mp.evaluate(() => document.documentElement.scrollWidth)) <= 375);
+await mp.locator('.quick-add__input').fill('Yeni gorev');
+await mp.waitForTimeout(250);
+check('controls fit 375px without overflow',
+  (await mp.evaluate(() => document.documentElement.scrollWidth)) <= 375,
+  `scrollWidth ${await mp.evaluate(() => document.documentElement.scrollWidth)}`);
+const pillBoxes = await mp.locator('.quick-add__controls .pill').evaluateAll((els) =>
+  els.map((el) => { const r = el.getBoundingClientRect(); return { w: r.width, h: r.height }; }),
+);
+check('every control is a real touch target',
+  pillBoxes.length >= 5 && pillBoxes.every((b) => b.h >= 30 && b.w >= 40),
+  JSON.stringify(pillBoxes.map((b) => `${Math.round(b.w)}x${Math.round(b.h)}`)));
+await shoot(mp, '21-quickadd-mobile.png');
 check('row actions reachable without hover',
   (await mp.locator('.task').first().locator('.task__delete')
     .evaluate((el) => getComputedStyle(el).opacity)) === '1');
