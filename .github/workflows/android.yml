@@ -26,7 +26,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      # `npm run build` typechecks first, so a type error fails the APK build too.
+      # `npm run build` typechecks and runs the pure-logic tests first, so a type
+      # error or a broken reminder rule fails the APK build too.
       - name: Install and build web assets
         run: |
           npm ci

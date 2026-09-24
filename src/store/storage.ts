@@ -1,10 +1,11 @@
-import type { AppState, List, Priority, Subtask, Task } from '../types';
+import type { AppState, List, Priority, Reminder, RepeatInterval, Subtask, Task } from '../types';
 import { createSeedState, INBOX_LIST_ID } from './seed';
 
 export const SCHEMA_VERSION = 1;
 const STORAGE_KEY = `todo:v${SCHEMA_VERSION}:state`;
 
 const PRIORITIES: Priority[] = ['none', 'low', 'medium', 'high'];
+const REPEATS: RepeatInterval[] = ['none', 'day', 'week', 'month', 'year'];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -22,6 +23,22 @@ function coerceSubtask(raw: unknown): Subtask | null {
     id: asString(raw.id) || crypto.randomUUID(),
     title,
     done: raw.done === true,
+  };
+}
+
+/**
+ * Reminders arrived after the first release, so state written by an older build
+ * simply has no `reminder` key — that reads as null here rather than as corrupt
+ * data, which is why the storage key stays at v1 instead of orphaning real tasks.
+ */
+function coerceReminder(raw: unknown): Reminder | null {
+  if (!isRecord(raw)) return null;
+  const at = asString(raw.at);
+  if (!at || Number.isNaN(new Date(at).getTime())) return null;
+  const repeat = raw.repeat;
+  return {
+    at,
+    repeat: REPEATS.includes(repeat as RepeatInterval) ? (repeat as RepeatInterval) : 'none',
   };
 }
 
@@ -51,6 +68,7 @@ function coerceTask(raw: unknown, knownListIds: Set<string>): Task | null {
     notes: asString(raw.notes),
     done: raw.done === true,
     dueDate: /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : null,
+    reminder: coerceReminder(raw.reminder),
     priority: PRIORITIES.includes(priority as Priority) ? (priority as Priority) : 'none',
     listId: knownListIds.has(listId) ? listId : INBOX_LIST_ID,
     subtasks: Array.isArray(raw.subtasks)

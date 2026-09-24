@@ -6,8 +6,9 @@ the WebView's `localStorage`, exactly as they do in the browser.
 
 - Application ID: `com.hakansilsupur.tasks`
 - Min SDK 24 (Android 7.0) · target/compile SDK 36
-- The only permission requested is `INTERNET`, which Capacitor's local asset server
-  needs; nothing leaves the device.
+- Permissions: `INTERNET` for Capacitor's local asset server, plus
+  `POST_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED` and
+  `WAKE_LOCK` for reminders. Nothing leaves the device.
 
 ## Getting an APK without installing anything
 
@@ -114,6 +115,44 @@ neither is present.
 `versionCode` — the integer Android compares to decide what counts as an upgrade — is
 passed by CI as the workflow run number, so every CI build installs cleanly over the one
 before. A local build without `-PversionCode` uses `1`.
+
+## Reminders
+
+A task can carry a reminder — a date **and** time — that fires an Android notification
+even when the app is closed. Reminders are rescheduled automatically after a reboot.
+
+Set one from the task's detail drawer, or say it in the quick-add bar:
+
+| You type | You get |
+| --- | --- |
+| `Call the dentist tomorrow at 9am` | reminder tomorrow 09:00 |
+| `Standup at 9:15` | today 09:15, or tomorrow if 09:15 has passed |
+| `Lunch at noon`, `Bins out tonight` | 12:00 / 20:00 |
+| `Take vitamins daily` | repeats every day at 09:00 |
+| `Team sync every monday at 10am` | repeats weekly, anchored on the next Monday |
+| `Pay rent every month` | repeats monthly |
+
+A bare date never creates a reminder — `Buy milk tomorrow` is due tomorrow and stays
+silent. Setting a reminder on a task with no due date fills the due date in, so it
+doesn't sit in Someday while quietly waiting to alert you.
+
+**The notification** carries **Snooze 10 min** and **Mark done** buttons; tapping the body
+opens the app on that task.
+
+**Permissions.** The app asks for notification permission the first time you actually set
+a reminder, not on first launch. If you decline, times are still saved — nothing fires
+until you enable notifications for the app in Android settings.
+
+**Exact timing.** Android 12+ gates precise alarms behind a separate setting. Without it
+reminders still arrive, but can drift by a few minutes when the phone is dozing. The
+detail drawer offers a link to grant it when it's missing.
+
+**Repeating tasks.** Completing a repeating task cancels its next alert but keeps the
+repeat; un-completing it schedules the next occurrence again.
+
+**Not available on the web build.** A browser can't alert with the tab closed without a
+push server, and this app deliberately has none. The web build shows a reminder's time
+on the task and says so in the drawer, but never fires anything.
 
 ## Notes on behaviour in the app
 

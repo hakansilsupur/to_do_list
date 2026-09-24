@@ -38,6 +38,15 @@ const foreground = `
 
 const background = `<rect width="1024" height="1024" fill="${ACCENT}" />`;
 
+// Android draws the status-bar icon as a silhouette: every non-transparent pixel
+// becomes white. So this one is the glyph alone on transparency — a coloured
+// square here would render as a solid white blob in the notification shade.
+const statusBar = `
+  <g transform="translate(512,512) scale(0.78) translate(-512,-512)">
+    ${check('#ffffff', 110)}
+  </g>
+`;
+
 const page = (body) => `<!doctype html>
 <html><head><meta charset="utf-8"><style>
   html,body{margin:0;padding:0;background:transparent}
@@ -68,6 +77,27 @@ try {
       omitBackground: transparent,
     });
     console.log(`wrote resources/${name}`);
+  }
+
+  // The notification icon goes straight into the Android res tree at the densities
+  // the system asks for; @capacitor/assets only handles launcher icons and splashes.
+  const STATUS_SIZES = { mdpi: 24, hdpi: 36, xhdpi: 48, xxhdpi: 72, xxxhdpi: 96 };
+  for (const [density, size] of Object.entries(STATUS_SIZES)) {
+    const dir = join(ROOT, 'android/app/src/main/res', `drawable-${density}`);
+    await mkdir(dir, { recursive: true });
+    const shot = await browser.newPage({
+      viewport: { width: size, height: size },
+      deviceScaleFactor: 1,
+    });
+    await shot.setContent(
+      page(statusBar).replace(`width="${SIZE}" height="${SIZE}"`, `width="${size}" height="${size}"`),
+    );
+    await shot.screenshot({
+      path: join(dir, 'ic_stat_reminder.png'),
+      omitBackground: true,
+    });
+    await shot.close();
+    console.log(`wrote drawable-${density}/ic_stat_reminder.png`);
   }
 } finally {
   await browser.close();

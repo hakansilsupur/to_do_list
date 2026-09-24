@@ -1,5 +1,17 @@
 export type Priority = 'none' | 'low' | 'medium' | 'high';
 
+/** How often a reminder repeats. 'none' fires once. */
+export type RepeatInterval = 'none' | 'day' | 'week' | 'month' | 'year';
+
+export type Reminder = {
+  /**
+   * Full ISO timestamp. For a one-off this is the fire time; when repeating it
+   * is the anchor the OS counts intervals from.
+   */
+  at: string;
+  repeat: RepeatInterval;
+};
+
 export type Subtask = {
   id: string;
   title: string;
@@ -13,6 +25,8 @@ export type Task = {
   done: boolean;
   /** ISO yyyy-mm-dd, or null for "Someday". */
   dueDate: string | null;
+  /** Separate from dueDate: the date says when it's due, this says when to be told. */
+  reminder: Reminder | null;
   priority: Priority;
   listId: string;
   subtasks: Subtask[];

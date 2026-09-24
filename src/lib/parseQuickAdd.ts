@@ -1,4 +1,4 @@
-import type { List, Priority } from '../types';
+import type { List, Priority, Reminder, RepeatInterval } from '../types';
 import {
   addDays,
   fromISODate,
@@ -12,6 +12,7 @@ import {
 export type ParsedInput = {
   title: string;
   dueDate: string | null;
+  reminder: Reminder | null;
   priority: Priority;
   listId: string | null;
 };
@@ -97,6 +98,76 @@ const PRIORITY_RULES: { pattern: RegExp; value: Priority }[] = [
   { pattern: /(^|\s)!(?=\s|$)/, value: 'low' },
 ];
 
+type TimeOfDay = { hours: number; minutes: number };
+
+/**
+ * Times are matched after the date rules have already taken their bite, so
+ * "tomorrow at 9am" composes and a yyyy-mm-dd date can't be mistaken for a clock
+ * reading. Bare-number forms need either a separator or am/pm to match, which
+ * keeps "Pay invoice 2" from becoming a 2 o'clock reminder.
+ */
+const TIME_RULES: { pattern: RegExp; resolve: (m: RegExpMatchArray) => TimeOfDay | null }[] = [
+  { pattern: /\bnoon\b/i, resolve: () => ({ hours: 12, minutes: 0 }) },
+  { pattern: /\bmidnight\b/i, resolve: () => ({ hours: 0, minutes: 0 }) },
+  {
+    pattern: /\b(?:at\s+)?(\d{1,2})[:.](\d{2})\s*(am|pm)?\b/i,
+    resolve: (m) => toTime(Number(m[1]), Number(m[2]), m[3]),
+  },
+  {
+    pattern: /\b(?:at\s+)?(\d{1,2})\s*(am|pm)\b/i,
+    resolve: (m) => toTime(Number(m[1]), 0, m[2]),
+  },
+  { pattern: /\bat\s+(\d{1,2})\b/i, resolve: (m) => toTime(Number(m[1]), 0, undefined) },
+];
+
+function toTime(hours: number, minutes: number, meridiem: string | undefined): TimeOfDay | null {
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (minutes < 0 || minutes > 59) return null;
+
+  let h = hours;
+  if (meridiem) {
+    const pm = meridiem.toLowerCase() === 'pm';
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (pm ? 12 : 0);
+  } else if (h < 0 || h > 23) {
+    return null;
+  }
+  return { hours: h, minutes };
+}
+
+/**
+ * Repeats are consumed before the date rules so "every monday" is read as a weekly
+ * recurrence rather than a one-off next Monday. An anchor day comes back with it.
+ */
+const REPEAT_RULES: {
+  pattern: RegExp;
+  repeat: RepeatInterval;
+  anchor?: (m: RegExpMatchArray) => string | null;
+}[] = [
+  {
+    pattern: new RegExp(`\\bevery (${WEEKDAY_PATTERN})\\b`, 'i'),
+    repeat: 'week',
+    anchor: (m) => {
+      const lower = m[1].toLowerCase();
+      const full = WEEKDAY_NAMES.find((d) => d === lower || d.slice(0, 3) === lower);
+      return full ? nextWeekday(full) : null;
+    },
+  },
+  { pattern: /\b(every ?day|daily)\b/i, repeat: 'day' },
+  { pattern: /\b(every week|weekly)\b/i, repeat: 'week' },
+  { pattern: /\b(every month|monthly)\b/i, repeat: 'month' },
+  { pattern: /\b(every year|yearly|annually)\b/i, repeat: 'year' },
+];
+
+/** Default o'clock for a reminder that names a recurrence but no time. */
+const DEFAULT_REMINDER_TIME: TimeOfDay = { hours: 9, minutes: 0 };
+/** "tonight" means the evening, not 00:00. */
+const TONIGHT: TimeOfDay = { hours: 20, minutes: 0 };
+
+function cut(text: string, match: RegExpMatchArray): string {
+  return text.slice(0, match.index).concat(text.slice(match.index! + match[0].length));
+}
+
 /**
  * Pull structured fields out of a quick-add line and return the leftover text as
  * the title. Anything that doesn't match a rule is left in place verbatim, so
@@ -109,6 +180,12 @@ export function parseQuickAdd(raw: string, lists: List[]): ParsedInput {
   let dueDate: string | null = null;
   let priority: Priority = 'none';
   let listId: string | null = null;
+  let repeat: RepeatInterval = 'none';
+  let repeatAnchor: string | null = null;
+  let time: TimeOfDay | null = null;
+
+  // "tonight" doubles as a date and an hour, and the date rules eat it below.
+  const saysTonight = /\btonight\b/i.test(text);
 
   for (const { pattern, value } of PRIORITY_RULES) {
     const match = text.match(pattern);
@@ -131,21 +208,68 @@ export function parseQuickAdd(raw: string, lists: List[]): ParsedInput {
     }
   }
 
+  for (const rule of REPEAT_RULES) {
+    const match = text.match(rule.pattern);
+    if (!match || match.index === undefined) continue;
+    repeat = rule.repeat;
+    repeatAnchor = rule.anchor?.(match) ?? null;
+    text = cut(text, match);
+    break;
+  }
+
   for (const { pattern, resolve } of DATE_RULES) {
     const match = text.match(pattern);
     if (!match || match.index === undefined) continue;
     const resolved = resolve(match);
     if (!resolved) continue;
     dueDate = resolved;
-    text = text.slice(0, match.index).concat(text.slice(match.index + match[0].length));
+    text = cut(text, match);
     break;
   }
+
+  for (const { pattern, resolve } of TIME_RULES) {
+    const match = text.match(pattern);
+    if (!match || match.index === undefined) continue;
+    const resolved = resolve(match);
+    if (!resolved) continue;
+    time = resolved;
+    text = cut(text, match);
+    break;
+  }
+
+  if (!dueDate && repeatAnchor) dueDate = repeatAnchor;
+  if (!time && saysTonight) time = TONIGHT;
+
+  const reminder = buildReminder({ dueDate, time, repeat });
+  // A recurrence needs a day to hang off, so surface it as the due date too.
+  if (!dueDate && reminder) dueDate = reminder.at.slice(0, 10);
 
   // Trim connector words the date phrase left dangling: "Call mom on tuesday".
   const title = text
     .replace(/\s+/g, ' ')
-    .replace(/\s+(on|by|at|due)\s*$/i, '')
+    .replace(/\s+(on|by|at|due|every)\s*$/i, '')
     .trim();
 
-  return { title, dueDate, priority, listId };
+  return { title, dueDate, reminder, priority, listId };
+}
+
+function buildReminder(input: {
+  dueDate: string | null;
+  time: TimeOfDay | null;
+  repeat: RepeatInterval;
+}): Reminder | null {
+  const { dueDate, time, repeat } = input;
+  // Only an explicit time or a recurrence means "tell me" — a bare date does not.
+  if (!time && repeat === 'none') return null;
+
+  const clock = time ?? DEFAULT_REMINDER_TIME;
+  const base = dueDate ? fromISODate(dueDate) : fromISODate(todayISO());
+  base.setHours(clock.hours, clock.minutes, 0, 0);
+
+  // A time with no date that has already gone by today means tomorrow.
+  if (!dueDate && base.getTime() <= Date.now()) {
+    base.setDate(base.getDate() + 1);
+  }
+
+  return { at: base.toISOString(), repeat };
 }

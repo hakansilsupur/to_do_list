@@ -1,0 +1,195 @@
+/**
+ * Table tests for the two pure pieces: quick-add parsing and notification planning.
+ * Bundled with esbuild so the real TypeScript source runs, no device needed.
+ */
+import { parseQuickAdd } from '../src/lib/parseQuickAdd';
+import {
+  formatReminder,
+  nextOccurrence,
+  notificationId,
+  planNotifications,
+  snoozedReminder,
+} from '../src/lib/reminders';
+import type { Reminder, Task } from '../src/types';
+
+let pass = 0;
+const failures: string[] = [];
+
+function check(name: string, ok: boolean, detail = '') {
+  if (ok) {
+    pass += 1;
+    console.log(`PASS  ${name}`);
+  } else {
+    failures.push(name);
+    console.log(`FAIL  ${name}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+const lists = [
+  { id: 'list-personal', name: 'Personal', color: '#3d7bfb' },
+  { id: 'list-work', name: 'Work', color: '#f0973f' },
+];
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const localDate = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = localDate(new Date());
+const tomorrow = localDate(new Date(Date.now() + 86_400_000));
+
+// ---------- quick add: times ----------
+
+const q1 = parseQuickAdd('Call the dentist tomorrow at 9am', lists);
+check('title strips date and time', q1.title === 'Call the dentist', `"${q1.title}"`);
+check('due date is tomorrow', q1.dueDate === tomorrow, `${q1.dueDate}`);
+check('reminder set at 09:00', new Date(q1.reminder!.at).getHours() === 9);
+check('reminder minutes zero', new Date(q1.reminder!.at).getMinutes() === 0);
+check('reminder on the due day', localDate(new Date(q1.reminder!.at)) === tomorrow);
+check('single reminder does not repeat', q1.reminder!.repeat === 'none');
+
+const q2 = parseQuickAdd('Standup at 9:30', lists);
+check('9:30 parsed', new Date(q2.reminder!.at).getHours() === 9 && new Date(q2.reminder!.at).getMinutes() === 30);
+check('title without time', q2.title === 'Standup', `"${q2.title}"`);
+
+const q3 = parseQuickAdd('Gym at 6pm', lists);
+check('pm converts to 18:00', new Date(q3.reminder!.at).getHours() === 18);
+
+const q4 = parseQuickAdd('Lunch at noon', lists);
+check('noon is 12:00', new Date(q4.reminder!.at).getHours() === 12);
+check('noon stripped from title', q4.title === 'Lunch', `"${q4.title}"`);
+
+// A bare time already past today must roll to tomorrow, never schedule in the past.
+const hourAgo = new Date(Date.now() - 3_600_000);
+const q5 = parseQuickAdd(`Water plants at ${hourAgo.getHours()}:${pad(hourAgo.getMinutes())}`, lists);
+check('past bare time rolls to tomorrow', new Date(q5.reminder!.at).getTime() > Date.now(),
+  `${q5.reminder?.at}`);
+
+const q6 = parseQuickAdd('Buy milk tomorrow', lists);
+check('a date alone creates no reminder', q6.reminder === null);
+check('date-alone still sets due date', q6.dueDate === tomorrow);
+
+const q7 = parseQuickAdd('Take the bins out tonight', lists);
+check('tonight implies 20:00', new Date(q7.reminder!.at).getHours() === 20);
+check('tonight is today', q7.dueDate === today, `${q7.dueDate}`);
+
+// ---------- quick add: repeats ----------
+
+const r1 = parseQuickAdd('Team sync every monday at 10am', lists);
+check('every monday repeats weekly', r1.reminder!.repeat === 'week', `${r1.reminder?.repeat}`);
+check('every monday anchors on a Monday', new Date(r1.reminder!.at).getDay() === 1);
+check('every monday at 10:00', new Date(r1.reminder!.at).getHours() === 10);
+check('repeat words stripped from title', r1.title === 'Team sync', `"${r1.title}"`);
+
+const r2 = parseQuickAdd('Take vitamins daily', lists);
+check('daily repeats', r2.reminder!.repeat === 'day');
+check('repeat with no time defaults to 09:00', new Date(r2.reminder!.at).getHours() === 9);
+check('daily stripped from title', r2.title === 'Take vitamins', `"${r2.title}"`);
+
+const r3 = parseQuickAdd('Pay rent every month', lists);
+check('monthly repeats', r3.reminder!.repeat === 'month');
+
+const r4 = parseQuickAdd('Renew passport every year !high', lists);
+check('yearly repeats', r4.reminder!.repeat === 'year');
+check('repeat composes with priority', r4.priority === 'high');
+
+// Regression: existing behaviour must survive the new rules.
+const r5 = parseQuickAdd('Send invoice friday #work !med', lists);
+check('weekday date rule still works', r5.dueDate !== null);
+check('list tag still works', r5.listId === 'list-work');
+check('priority still works', r5.priority === 'medium');
+check('no accidental reminder', r5.reminder === null);
+check('title intact', r5.title === 'Send invoice', `"${r5.title}"`);
+
+const r6 = parseQuickAdd('Email Mark about the deck', lists);
+check('plain text untouched', r6.title === 'Email Mark about the deck' && r6.reminder === null);
+
+// ---------- notification planning ----------
+
+const baseTask = (over: Partial<Task>): Task => ({
+  id: 'id-' + (over.title ?? 'x'),
+  title: 'Task',
+  notes: '',
+  done: false,
+  dueDate: null,
+  reminder: null,
+  priority: 'none',
+  listId: 'list-personal',
+  subtasks: [],
+  createdAt: new Date().toISOString(),
+  completedAt: null,
+  ...over,
+});
+
+const now = new Date('2026-06-15T12:00:00Z');
+const future: Reminder = { at: '2026-06-15T18:00:00Z', repeat: 'none' };
+const past: Reminder = { at: '2026-06-01T09:00:00Z', repeat: 'none' };
+const pastDaily: Reminder = { at: '2026-06-01T09:00:00Z', repeat: 'day' };
+
+const planned = planNotifications(
+  [
+    baseTask({ id: 'a', title: 'Future one-off', reminder: future }),
+    baseTask({ id: 'b', title: 'Past one-off', reminder: past }),
+    baseTask({ id: 'c', title: 'Repeating', reminder: pastDaily }),
+    baseTask({ id: 'd', title: 'Done with reminder', reminder: future, done: true }),
+    baseTask({ id: 'e', title: 'No reminder' }),
+  ],
+  now,
+);
+const ids = planned.map((p) => p.taskId).sort();
+check('plans exactly the right tasks', JSON.stringify(ids) === JSON.stringify(['a', 'c']),
+  JSON.stringify(ids));
+check('past one-off excluded', !ids.includes('b'));
+check('completed task excluded', !ids.includes('d'));
+
+const repeating = planned.find((p) => p.taskId === 'c')!;
+check('stale repeat rolls into the future', new Date(repeating.at) > now, repeating.at);
+check('repeat interval preserved', repeating.repeat === 'day');
+
+const oneOff = planned.find((p) => p.taskId === 'a')!;
+check('one-off keeps its exact time', oneOff.at === new Date(future.at).toISOString());
+check('empty notes fall back to a body', oneOff.body === 'Reminder');
+
+const withNotes = planNotifications(
+  [baseTask({ id: 'n', title: 'T', notes: 'Bring the form', reminder: future })],
+  now,
+)[0];
+check('notes become the body', withNotes.body === 'Bring the form');
+
+// ---------- ids ----------
+
+const uuid = '4f1a2b3c-1111-2222-3333-444455556666';
+check('id is stable', notificationId(uuid) === notificationId(uuid));
+check('id is a positive 31-bit int',
+  Number.isInteger(notificationId(uuid)) &&
+    notificationId(uuid) > 0 &&
+    notificationId(uuid) <= 0x7fffffff,
+  String(notificationId(uuid)));
+check('different ids differ', notificationId('a') !== notificationId('b'));
+
+const many = new Set(
+  Array.from({ length: 5000 }, (_, i) => notificationId(`task-${i}-uuid-abcdef`)),
+);
+check('no collisions across 5000 ids', many.size === 5000, `${many.size}`);
+
+// ---------- snooze + next occurrence ----------
+
+const snoozed = snoozedReminder({ at: past.at, repeat: 'week' }, now);
+check('snooze moves 10 minutes out',
+  new Date(snoozed.at).getTime() - now.getTime() === 10 * 60_000);
+check('snooze keeps the repeat', snoozed.repeat === 'week');
+
+check('nextOccurrence leaves a future one-off alone',
+  nextOccurrence(future, now)!.toISOString() === new Date(future.at).toISOString());
+check('nextOccurrence drops a past one-off', nextOccurrence(past, now) === null);
+check('nextOccurrence rolls a weekly anchor forward',
+  nextOccurrence({ at: '2026-06-01T09:00:00Z', repeat: 'week' }, now)! > now);
+check('nextOccurrence survives a garbage timestamp',
+  nextOccurrence({ at: 'not-a-date', repeat: 'none' }, now) === null);
+check('formatReminder renders something for a future time',
+  formatReminder(future, now).length > 0, formatReminder(future, now));
+check('formatReminder is empty for a dead one-off', formatReminder(past, now) === '');
+
+console.log(`\n${pass}/${pass + failures.length} checks passed`);
+if (failures.length) {
+  console.log('failed: ' + failures.join(', '));
+  process.exit(1);
+}

@@ -547,6 +547,14 @@
   color: var(--text-faint);
 }
 
+.chip--reminder {
+  gap: 4px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+  font-variant-numeric: tabular-nums;
+}
+
 .chip--high {
   background: var(--danger-soft);
   color: var(--danger);
@@ -754,6 +762,26 @@
 .pill:hover {
   border-color: var(--border-strong);
   color: var(--text);
+}
+
+.pill--clear {
+  color: var(--danger);
+}
+
+.pill--clear:hover {
+  background: var(--danger-soft);
+  border-color: transparent;
+  color: var(--danger);
+}
+
+.detail__link {
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.detail__hint--warn {
+  color: var(--danger);
 }
 
 .pill.is-active {
@@ -974,6 +1002,13 @@
   .task__meta .chip--list,
   .task__meta .chip--notes {
     display: none;
+  }
+
+  /* A reminder matters more than a list name, so it survives one breakpoint longer. */
+  @media (max-width: 460px) {
+    .task__meta .chip--reminder {
+      display: none;
+    }
   }
 
   .task__title {

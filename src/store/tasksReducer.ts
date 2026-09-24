@@ -1,4 +1,4 @@
-import type { AppState, List, Priority, Task } from '../types';
+import type { AppState, List, Priority, Reminder, Task } from '../types';
 import { INBOX_LIST_ID } from './seed';
 
 export type Action =
@@ -106,6 +106,7 @@ export function tasksReducer(state: AppState, action: Action): AppState {
 export function createTask(fields: {
   title: string;
   dueDate?: string | null;
+  reminder?: Reminder | null;
   priority?: Priority;
   listId?: string;
 }): Task {
@@ -115,6 +116,7 @@ export function createTask(fields: {
     notes: '',
     done: false,
     dueDate: fields.dueDate ?? null,
+    reminder: fields.reminder ?? null,
     priority: fields.priority ?? 'none',
     listId: fields.listId ?? INBOX_LIST_ID,
     subtasks: [],

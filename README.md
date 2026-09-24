@@ -18,6 +18,8 @@ Other scripts:
 ```bash
 npm run build      # typecheck + production build into dist/
 npm run typecheck  # tsc --noEmit
+npm test           # pure-logic tests: quick-add parsing + reminder planning
+npm run verify:ui  # browser checks against a running dev server
 npm run preview    # serve the production build
 ```
 
@@ -50,10 +52,20 @@ Enter will create.
 | `next monday`, `next week`, `next month` | further out |
 | `in 3 days`, `in 2 weeks` | relative offsets |
 | `jan 15`, `15 jan`, `2026-01-15` | a specific date |
+| `at 9am`, `at 9:30pm`, `9:15`, `noon`, `midnight` | a reminder at that time |
+| `daily`, `every week`, `every month`, `every monday` | a repeating reminder |
 | `!high` / `!med` / `!low`, or `!!!` / `!!` / `!` | priority |
 | `#work` | files it into a list of that name |
 
 Anything that doesn't match a rule is left in the title verbatim.
+
+## Reminders
+
+A task can have a reminder at a date and time, optionally repeating. On the Android
+build that fires a real notification with **Snooze 10 min** and **Mark done** buttons,
+even when the app is closed. In a browser the time is shown but nothing fires — that
+would need a push server, and this app has no backend. See
+[docs/ANDROID.md](docs/ANDROID.md).
 
 ## Views
 
@@ -87,6 +99,8 @@ scripts/make-icon.mjs      renders the launcher icon from the app's check mark
 src/
   types.ts                 Task, List, Bucket, View
   lib/dates.ts             bucketing + local-date helpers
+  lib/reminders.ts         reminder planning + formatting (pure, unit-tested)
+  lib/notifications.ts     Capacitor scheduling, permissions, snooze/done actions
   lib/native.ts            back button, status bar — no-ops in a browser
   lib/parseQuickAdd.ts     natural-language parsing for the add bar
   store/tasksReducer.ts    pure reducer, all state transitions

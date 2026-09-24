@@ -19,6 +19,6 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": false
   },
-  "include": ["src"],
+  "include": ["src", "scripts/test-reminders.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

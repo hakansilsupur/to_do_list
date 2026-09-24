@@ -15,6 +15,7 @@ function task(partial: Partial<Task> & Pick<Task, 'title'>): Task {
     notes: '',
     done: false,
     dueDate: null,
+    reminder: null,
     priority: 'none',
     listId: INBOX_LIST_ID,
     subtasks: [],

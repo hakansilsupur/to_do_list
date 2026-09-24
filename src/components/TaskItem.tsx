@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { List, Task } from '../types';
 import { formatDueLabel, isOverdue } from '../lib/dates';
+import { formatReminder } from '../lib/reminders';
 import { Checkbox } from './Checkbox';
 
 const EXIT_MS = 320;
@@ -62,6 +63,7 @@ export function TaskItem({
   const overdue = isOverdue(task.dueDate, task.done);
   const dueLabel = formatDueLabel(task.dueDate);
   const openSubtasks = task.subtasks.filter((s) => s.done).length;
+  const reminderLabel = task.reminder ? formatReminder(task.reminder) : '';
 
   return (
     <li
@@ -92,6 +94,20 @@ export function TaskItem({
           )}
           {dueLabel && (
             <span className={`chip${overdue ? ' chip--danger' : ''}`}>{dueLabel}</span>
+          )}
+          {reminderLabel && (
+            <span
+              className="chip chip--reminder"
+              title={
+                task.reminder!.repeat === 'none'
+                  ? `Reminder at ${reminderLabel}`
+                  : `Repeating reminder, next at ${reminderLabel}`
+              }
+            >
+              <span aria-hidden="true">🔔</span>
+              {reminderLabel}
+              {task.reminder!.repeat !== 'none' && <span aria-hidden="true">↻</span>}
+            </span>
           )}
           {task.subtasks.length > 0 && (
             <span className="chip chip--quiet">

@@ -5,7 +5,15 @@ import { createList, createTask } from './store/tasksReducer';
 import { INBOX_LIST_ID } from './store/seed';
 import { BUCKET_LABELS, BUCKET_ORDER, bucketFor, daysFromToday, todayISO } from './lib/dates';
 import type { ParsedInput } from './lib/parseQuickAdd';
-import { useNativeShell, type BackHandler } from './lib/native';
+import { useNativeShell, isNative, type BackHandler } from './lib/native';
+import {
+  checkExactAlarms,
+  ensureNotificationPermission,
+  requestExactAlarms,
+  useReminders,
+  type NotificationAction,
+} from './lib/notifications';
+import { snoozedReminder } from './lib/reminders';
 import { QuickAdd } from './components/QuickAdd';
 import { Sidebar } from './components/Sidebar';
 import { TaskGroup } from './components/TaskGroup';
@@ -69,6 +77,56 @@ export default function App() {
   useNativeShell({ onBack: handleBack });
 
   const { tasks, lists } = state;
+
+  // Notification buttons map onto actions the reducer already has — completing is
+  // just a toggle, snoozing is a reminder patch. Reading tasks from a ref keeps the
+  // handler stable so the native listener isn't re-registered on every render.
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
+
+  const handleNotificationAction = useCallback((action: NotificationAction) => {
+    const task = tasksRef.current.find((t) => t.id === action.taskId);
+    if (!task) return;
+
+    switch (action.kind) {
+      case 'done':
+        if (!task.done) dispatch({ type: 'toggle-task', id: task.id });
+        break;
+      case 'snooze':
+        if (task.reminder) {
+          dispatch({
+            type: 'update-task',
+            id: task.id,
+            patch: { reminder: snoozedReminder(task.reminder) },
+          });
+        }
+        break;
+      case 'open':
+        setSelectedId(task.id);
+        break;
+    }
+  }, []);
+
+  useReminders({ tasks, onAction: handleNotificationAction });
+
+  // Android 12+ can withhold precise alarm timing; surfaced in the detail drawer.
+  const [exactAlarms, setExactAlarms] = useState(false);
+  useEffect(() => {
+    if (!isNative()) return;
+    void checkExactAlarms().then(setExactAlarms);
+  }, []);
+
+  const reminderSupport = useMemo(
+    () =>
+      isNative()
+        ? {
+            exactAlarms,
+            onRequestExactAlarms: () => void requestExactAlarms().then(setExactAlarms),
+            onEnable: ensureNotificationPermission,
+          }
+        : null,
+    [exactAlarms],
+  );
 
   const activeList = view.kind === 'list' ? lists.find((l) => l.id === view.listId) : undefined;
   // The list you're viewing becomes the default home for new tasks.
@@ -192,6 +250,7 @@ export default function App() {
     const task = createTask({
       title: parsed.title,
       dueDate: parsed.dueDate ?? (view.kind === 'today' ? todayISO() : null),
+      reminder: parsed.reminder,
       priority: parsed.priority,
       listId: parsed.listId ?? defaultListId,
     });
@@ -322,6 +381,7 @@ export default function App() {
         <TaskDetail
           task={selectedTask}
           lists={lists}
+          reminderSupport={reminderSupport}
           onClose={() => setSelectedId(null)}
           onPatch={(patch) => dispatch({ type: 'update-task', id: selectedTask.id, patch })}
           onToggle={() => dispatch({ type: 'toggle-task', id: selectedTask.id })}

@@ -2,6 +2,7 @@ import { useMemo, useState, type RefObject } from 'react';
 import type { List } from '../types';
 import { parseQuickAdd, type ParsedInput } from '../lib/parseQuickAdd';
 import { formatDueLabel } from '../lib/dates';
+import { formatReminder, REPEAT_LABELS } from '../lib/reminders';
 
 type QuickAddProps = {
   lists: List[];
@@ -40,7 +41,7 @@ export function QuickAdd({ lists, defaultListId, inputRef, onAdd }: QuickAddProp
           ref={inputRef}
           type="text"
           className="quick-add__input"
-          placeholder="Add a task —  try “Call the dentist tomorrow !high”"
+          placeholder="Add a task —  try “Call the dentist tomorrow at 9am”"
           aria-label="Add a task"
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -62,6 +63,13 @@ export function QuickAdd({ lists, defaultListId, inputRef, onAdd }: QuickAddProp
             {parsed.title || <em>(no title yet)</em>}
           </span>
           {parsed.dueDate && <span className="chip">{formatDueLabel(parsed.dueDate)}</span>}
+          {parsed.reminder && (
+            <span className="chip chip--reminder">
+              <span aria-hidden="true">🔔</span>
+              {formatReminder(parsed.reminder)}
+              {parsed.reminder.repeat !== 'none' && ` · ${REPEAT_LABELS[parsed.reminder.repeat]}`}
+            </span>
+          )}
           {parsed.priority !== 'none' && (
             <span className={`chip chip--${parsed.priority}`}>{parsed.priority}</span>
           )}
