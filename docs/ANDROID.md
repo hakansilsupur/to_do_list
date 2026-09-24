@@ -93,7 +93,19 @@ you hold, set up release signing below; CI then uses it for every build automati
 
 Each CI run prints the APK's certificate and checks it against the committed keystore, so
 if the signing config ever regresses the build fails rather than shipping an APK that
-cannot be installed.
+cannot be installed. Every debug APK carries this certificate:
+
+```
+SHA-256  23:38:1C:DC:F5:C3:C3:79:2F:86:1C:F2:67:8F:45:2E:EF:F1:D6:7F:0F:49:92:7C:EC:DF:D2:13:A5:95:67:E7
+```
+
+To check an APK yourself:
+
+```bash
+$ANDROID_HOME/build-tools/*/apksigner verify --print-certs tasks-*.apk
+```
+
+Two APKs showing that same digest will install over each other.
 
 ### Switching keys costs one uninstall
 
