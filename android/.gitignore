@@ -56,6 +56,10 @@ captures/
 *.jks
 *.keystore
 keystore.properties
+# The one exception: the shared debug key. It is public by design (the password
+# is the well-known "android"), grants no security, and exists only so every
+# build is signed identically and can install over the previous one.
+!app/debug.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild

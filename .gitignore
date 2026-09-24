@@ -7,8 +7,11 @@ dist-ssr
 npm-debug.log*
 yarn-error.log*
 
-# Android signing — a committed keystore is an unrevocable key compromise
+# Android signing — a committed release keystore is an unrevocable key compromise
 *.jks
 *.keystore
 keystore.properties
 android/local.properties
+# ...except the shared debug key, which is deliberately public so that every
+# build shares one certificate and APKs can update over each other.
+!android/app/debug.keystore

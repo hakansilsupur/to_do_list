@@ -35,8 +35,13 @@ To build one yourself (needs the Android SDK):
 npm run android:apk   # → android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Install it with `adb install -r <file>.apk`. Full details — signing, releases,
-versioning — are in [docs/ANDROID.md](docs/ANDROID.md).
+Install it with `adb install -r <file>.apk`. Every build is signed with the same
+committed debug key, so a new APK installs straight over the previous one.
+
+If you installed a build from before that was fixed, its certificate was random and
+nothing can update over it — you must uninstall once, which erases its tasks.
+[docs/ANDROID.md](docs/ANDROID.md) has steps to copy them out first, plus signing,
+releases and versioning.
 
 ## Quick add
 

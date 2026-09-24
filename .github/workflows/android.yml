@@ -46,18 +46,36 @@ jobs:
           # Android Gradle Plugin fetches any missing platform itself.
           packages: ''
 
+      # Runs on every build, not just tags: which key signs the APK decides whether
+      # it can install over the previous one, so the choice can't be tag-only.
+      - name: Check for signing secrets
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No release keystore secret — signing with the shared debug key committed in the repo. Updates still install over each other. See docs/ANDROID.md."
+          fi
+
       # Copies dist/ into the native project and regenerates the plugin wiring.
       # capacitor-cordova-android-plugins is gitignored, so this must run before Gradle.
       - name: Sync Capacitor
         run: npx cap sync android
 
+      # Signed with the committed debug keystore, so its certificate is identical
+      # on every runner. Skipped entirely when a real release key is configured.
       - name: Build debug APK
+        if: steps.signing.outputs.available != 'true'
         working-directory: android
         # run_number as versionCode keeps every CI build installable over the last.
         run: ./gradlew --no-daemon assembleDebug -PversionCode=${{ github.run_number }}
 
       - name: Name the debug APK
         id: debug
+        if: steps.signing.outputs.available != 'true'
         run: |
           version=$(node -p "require('./package.json').version")
           name="tasks-${version}-build${{ github.run_number }}-debug.apk"
@@ -66,26 +84,12 @@ jobs:
           ls -lh "$name"
 
       - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.available != 'true'
         with:
           name: tasks-debug-apk
           path: ${{ steps.debug.outputs.path }}
           retention-days: 30
           if-no-files-found: error
-
-      # --- Release track: only on a v* tag, and only once signing secrets exist ---
-
-      - name: Check for signing secrets
-        id: signing
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$KEYSTORE" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret set — publishing the debug APK only. See docs/ANDROID.md to enable signed releases."
-          fi
 
       - name: Build signed release APK
         if: steps.signing.outputs.available == 'true'
@@ -106,10 +110,52 @@ jobs:
         id: release
         if: steps.signing.outputs.available == 'true'
         run: |
-          name="tasks-${GITHUB_REF_NAME}.apk"
+          version=$(node -p "require('./package.json').version")
+          name="tasks-${version}-build${{ github.run_number }}.apk"
           mv android/app/build/outputs/apk/release/app-release.apk "$name"
           echo "path=$name" >> "$GITHUB_OUTPUT"
           ls -lh "$name"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.available == 'true'
+        with:
+          name: tasks-release-apk
+          path: ${{ steps.release.outputs.path }}
+          retention-days: 30
+          if-no-files-found: error
+
+      # Proves the APK carries the certificate we intend, rather than one a runner
+      # invented. When the shared debug key is in use the expected fingerprint is
+      # derived from the committed keystore and asserted, so a regression in the
+      # signing config fails the build instead of shipping an uninstallable update.
+      - name: Verify signing certificate
+        run: |
+          apk="${{ steps.debug.outputs.path }}${{ steps.release.outputs.path }}"
+          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$apksigner" ]; then
+            echo "::warning::apksigner not found; skipping certificate check"
+            exit 0
+          fi
+
+          actual=$("$apksigner" verify --print-certs "$apk" \
+            | grep -i 'certificate SHA-256 digest' | head -1 | awk '{print $NF}' | tr 'A-Z' 'a-z')
+          echo "APK signing certificate SHA-256: $actual"
+
+          if [ "${{ steps.signing.outputs.available }}" = "true" ]; then
+            echo "Signed with the release keystore from repository secrets."
+            exit 0
+          fi
+
+          expected=$(keytool -list -v -keystore android/app/debug.keystore \
+            -storepass android -alias androiddebugkey \
+            | grep 'SHA256:' | sed 's/.*SHA256: //' | tr -d ': ' | tr 'A-Z' 'a-z')
+          echo "Expected (android/app/debug.keystore): $expected"
+
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::APK is not signed with the committed debug keystore. Updates would fail to install over previous builds."
+            exit 1
+          fi
+          echo "Certificate matches the committed keystore — this APK will install over the previous one."
 
       - name: Attach APK to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')

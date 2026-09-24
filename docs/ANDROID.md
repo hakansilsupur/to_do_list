@@ -34,8 +34,12 @@ adb install -r tasks-0.1.0-build12-debug.apk
 ```
 
 Or copy the APK to the device and open it — Android will ask you to allow installs from
-that source. Debug APKs are signed with the universal Android debug key, which is fine
-for your own device but cannot be published to Play.
+that source.
+
+`-r` reinstalls over an existing copy, keeping its data. That works because every build
+shares one signing certificate (see below); if you get "App not installed" or
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, the installed copy predates that fix and has to be
+uninstalled once.
 
 ## Building locally
 
@@ -65,10 +69,68 @@ assets under `android/app/src/main/assets/public` and the
 `capacitor-cordova-android-plugins` module are generated, not committed — Gradle will
 fail on a fresh clone without a sync first.
 
+## Signing, and why updates work
+
+Android identifies an app by the certificate it was signed with, and refuses to install an
+update signed by a different key. That makes the signing key the thing that decides
+whether a new APK installs *over* the old one or is rejected with "App not installed"
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`).
+
+By default Gradle signs debug builds with `~/.android/debug.keystore`, generating one with
+a **random** key pair if the machine has none. CI runners are wiped between runs, so that
+produced a different certificate on every build — each APK looked like a different app to
+Android.
+
+So the debug key is pinned: `android/app/debug.keystore` is committed, and
+`android/app/build.gradle` points the `debug` build type at it. Every build, on CI or on
+your machine, now signs identically.
+
+**That keystore is deliberately public.** Its password is the well-known `android` and it
+is in the repository, so it grants no security: anyone with the repo can build an APK that
+installs over yours. That is an acceptable trade for a personal sideloaded app and nothing
+more — it is not a Play-publishable key, and it is not a security boundary. For a key only
+you hold, set up release signing below; CI then uses it for every build automatically.
+
+Each CI run prints the APK's certificate and checks it against the committed keystore, so
+if the signing config ever regresses the build fails rather than shipping an APK that
+cannot be installed.
+
+### Switching keys costs one uninstall
+
+Any change of signing key — including moving from the shared debug key to your own release
+key — means the next APK cannot install over what's on the phone. You have to uninstall
+first, which **erases the app's tasks**: they live in the WebView's private storage, which
+Android deletes with the app.
+
+### Rescuing your tasks before an uninstall
+
+Debug builds are debuggable, so the WebView can be inspected from a desktop browser.
+
+1. On the phone: Settings → Developer options → USB debugging on, then connect by USB.
+2. On the desktop: open Chrome and go to `chrome://inspect`. The app's WebView appears
+   under the device once the app is open — click **inspect**.
+3. In the Console, dump the tasks and save the output somewhere:
+
+   ```js
+   copy(localStorage.getItem('todo:v1:state'))   // now in your clipboard
+   ```
+
+4. Uninstall the old app, install the new APK, and open it.
+5. Inspect it the same way and restore:
+
+   ```js
+   localStorage.setItem('todo:v1:state', '<paste the JSON>');
+   location.reload();
+   ```
+
+If you have nothing worth keeping, skip all of this and just uninstall.
+
 ## Signed releases
 
-A debug APK can't be upgraded in place by a release build and can't go on Play. For that
-you need your own keystore. **Generate it once and never lose it** — Android identifies
+The shared debug key above is public, so it cannot go on Play and gives you no control
+over who can publish an update to your install. For a key only you hold, make your own.
+Once its secrets exist, CI signs **every** build with it — not just tagged ones — so
+updates keep working on that key instead. **Generate it once and never lose it** — Android identifies
 an app by its signing key, so a lost key means you can never ship an update to installed
 users.
 
