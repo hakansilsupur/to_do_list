@@ -39,6 +39,12 @@ jobs:
           java-version: 21
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list includes the long-obsolete `tools`
+          # package, which Google removed from the SDK repository — asking for it
+          # fails the whole step. The runner image already ships the SDK, and the
+          # Android Gradle Plugin fetches any missing platform itself.
+          packages: ''
 
       # Copies dist/ into the native project and regenerates the plugin wiring.
       # capacitor-cordova-android-plugins is gitignored, so this must run before Gradle.
