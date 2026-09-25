@@ -408,6 +408,99 @@ await legacyCtx.close();
 
 check('no console errors', errors.length === 0, errors.slice(0, 2).join(' | '));
 
+// ---------- vertical scrolling ----------
+// The bug this guards: .main and .main__scroll default to min-height:auto, so the
+// scroll container sized itself to its content, .app clipped the overhang, and the
+// bottom of the list became unreachable. Counting rows never caught it — locators
+// resolve from the DOM whether or not anything can actually be scrolled to.
+const tallCtx = await browser.newContext({
+  viewport: { width: 412, height: 700 },
+  isMobile: true,
+  hasTouch: true,
+});
+const tallPage = await tallCtx.newPage();
+const manyTasks = {
+  lists: [{ id: 'list-personal', name: 'Personal', color: '#3d7bfb' }],
+  tasks: Array.from({ length: 25 }, (_, i) => ({
+    id: `scroll-${i}`,
+    title: `Scroll test task ${i + 1}`,
+    notes: '',
+    done: false,
+    dueDate: null,
+    reminder: null,
+    priority: 'none',
+    listId: 'list-personal',
+    subtasks: [],
+    createdAt: new Date(Date.now() - i * 1000).toISOString(),
+    completedAt: null,
+  })),
+};
+await tallPage.addInitScript((st) => {
+  localStorage.setItem('todo:v1:state', JSON.stringify(st));
+}, manyTasks);
+await tallPage.goto(DEV_URL, { waitUntil: 'networkidle' });
+await tallPage.waitForTimeout(500);
+// The seeded tasks are undated, so they live in Someday — the Today view the app
+// opens on would show an empty list and nothing to scroll.
+await tallPage.locator('.main__menu').click();
+await tallPage.waitForTimeout(400);
+await tallPage.locator('.nav-item', { hasText: 'All tasks' }).click();
+await tallPage.waitForTimeout(500);
+check('the seeded tasks render', (await tallPage.locator('.task').count()) === 25,
+  `${await tallPage.locator('.task').count()} rows`);
+
+const layout = await tallPage.evaluate(() => {
+  const app = document.querySelector('.app');
+  const main = document.querySelector('.main');
+  const sc = document.querySelector('.main__scroll');
+  return {
+    appH: app.offsetHeight,
+    mainH: main.offsetHeight,
+    win: window.innerHeight,
+    scClient: sc.clientHeight,
+    scScroll: sc.scrollHeight,
+  };
+});
+check('the main pane does not outgrow its grid row', layout.mainH <= layout.appH,
+  `main ${layout.mainH} vs app ${layout.appH}`);
+check('the app fills the window exactly', layout.appH === layout.win,
+  `app ${layout.appH} vs window ${layout.win}`);
+check('the task list is actually scrollable', layout.scScroll > layout.scClient,
+  `scrollHeight ${layout.scScroll} vs clientHeight ${layout.scClient}`);
+
+const reached = await tallPage.evaluate(() => {
+  const sc = document.querySelector('.main__scroll');
+  sc.scrollTop = sc.scrollHeight;
+  const rows = [...document.querySelectorAll('.task')];
+  const last = rows[rows.length - 1].getBoundingClientRect();
+  return { scrollTop: sc.scrollTop, bottom: Math.round(last.bottom), win: window.innerHeight };
+});
+check('scrolling actually moves the list', reached.scrollTop > 0, `scrollTop ${reached.scrollTop}`);
+check('the last task can be scrolled into view', reached.bottom <= reached.win,
+  `last row bottom ${reached.bottom} vs window ${reached.win}`);
+
+await shoot(tallPage, '40-scrolled-to-bottom.png');
+
+// The sidebar and the detail drawer share the same container shape.
+await tallPage.locator('.main__menu').click();
+await tallPage.waitForTimeout(400);
+const sidebarOk = await tallPage.evaluate(() => {
+  const el = document.querySelector('.sidebar');
+  return el.scrollHeight <= el.clientHeight || getComputedStyle(el).overflowY === 'auto';
+});
+check('the sidebar can scroll its own content', sidebarOk);
+await tallPage.keyboard.press('Escape');
+await tallPage.waitForTimeout(300);
+
+await tallPage.locator('.task__body').first().click();
+await tallPage.waitForSelector('.detail');
+const detailOk = await tallPage.evaluate(() => {
+  const body = document.querySelector('.detail__body');
+  return body.scrollHeight <= body.clientHeight || getComputedStyle(body).overflowY === 'auto';
+});
+check('the detail drawer can scroll its own content', detailOk);
+await tallCtx.close();
+
 // ---------- the bundle that ships in the APK ----------
 const apkCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
 const apkPage = await apkCtx.newPage();

@@ -22,6 +22,7 @@
 .sidebar {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   gap: 22px;
   padding: calc(20px + env(safe-area-inset-top)) 12px
     calc(20px + env(safe-area-inset-bottom))
@@ -176,6 +177,14 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  /*
+   * Grid and flex items default to min-height:auto, which refuses to shrink below
+   * their content — so .main grew past its grid row, .main__scroll sized itself to
+   * its content instead of scrolling, and .app's overflow:hidden clipped the rest
+   * with no way to reach it. These min-height:0 lines are what make the list
+   * scrollable; they are not redundant.
+   */
+  min-height: 0;
   background: var(--bg);
 }
 
@@ -236,6 +245,7 @@
 
 .main__scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 6px 28px calc(60px + env(safe-area-inset-bottom));
 }
@@ -721,6 +731,7 @@
 .detail {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   background: var(--surface);
   border-left: 1px solid var(--border);
   overflow: hidden;
@@ -760,6 +771,7 @@
 
 .detail__body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 18px 16px 40px;
 }
