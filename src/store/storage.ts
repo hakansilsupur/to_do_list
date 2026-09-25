@@ -95,29 +95,40 @@ export function loadState(): AppState {
   if (!stored) return createSeedState();
 
   try {
-    const parsed: unknown = JSON.parse(stored);
-    if (!isRecord(parsed)) return createSeedState();
-
-    const lists = Array.isArray(parsed.lists)
-      ? parsed.lists.map(coerceList).filter((l): l is List => l !== null)
-      : [];
-    if (lists.length === 0) return createSeedState();
-
-    const listIds = new Set(lists.map((l) => l.id));
-    // Tasks fall back to INBOX_LIST_ID, so it must exist for orphans to land somewhere.
-    if (!listIds.has(INBOX_LIST_ID)) {
-      lists.unshift({ id: INBOX_LIST_ID, name: 'Personal', color: '#3d7bfb' });
-      listIds.add(INBOX_LIST_ID);
-    }
-
-    const tasks = Array.isArray(parsed.tasks)
-      ? parsed.tasks.map((t) => coerceTask(t, listIds)).filter((t): t is Task => t !== null)
-      : [];
-
-    return { lists, tasks };
+    return parseState(JSON.parse(stored)) ?? createSeedState();
   } catch {
     return createSeedState();
   }
+}
+
+/**
+ * Validate an arbitrary value into app state, field by field, or return null if
+ * there is nothing usable in it.
+ *
+ * Shared by `loadState` and by importing a backup file, deliberately: a file
+ * someone hands the app deserves exactly the same scrutiny as stored state, and
+ * a second, laxer validator is how bad data gets in.
+ */
+export function parseState(raw: unknown): AppState | null {
+  if (!isRecord(raw)) return null;
+
+  const lists = Array.isArray(raw.lists)
+    ? raw.lists.map(coerceList).filter((l): l is List => l !== null)
+    : [];
+  if (lists.length === 0) return null;
+
+  const listIds = new Set(lists.map((l) => l.id));
+  // Tasks fall back to INBOX_LIST_ID, so it must exist for orphans to land somewhere.
+  if (!listIds.has(INBOX_LIST_ID)) {
+    lists.unshift({ id: INBOX_LIST_ID, name: 'Personal', color: '#3d7bfb' });
+    listIds.add(INBOX_LIST_ID);
+  }
+
+  const tasks = Array.isArray(raw.tasks)
+    ? raw.tasks.map((t) => coerceTask(t, listIds)).filter((t): t is Task => t !== null)
+    : [];
+
+  return { lists, tasks };
 }
 
 export function saveState(state: AppState): void {

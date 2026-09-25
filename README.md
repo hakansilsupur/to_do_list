@@ -97,6 +97,15 @@ Adding a task from the Today view with no date stated files it under today.
 - <kbd>Enter</kbd> — create the task
 - <kbd>Esc</kbd> — close the detail drawer or sidebar
 
+## Backups
+
+**Export backup** / **Import backup** in the sidebar save every list and task to a JSON
+file and restore from one. Import replaces what's there, after confirming, so it also
+moves your tasks between devices. On Android the export goes through the share sheet;
+in a browser it downloads.
+
+There's no sync, so this is the only backup — take one before reinstalling.
+
 ## Data
 
 State is written to `localStorage` under `todo:v1:state`, debounced, and flushed
@@ -113,6 +122,7 @@ scripts/make-icon.mjs      renders the launcher icon from the app's check mark
 src/
   types.ts                 Task, List, Bucket, View
   lib/dates.ts             bucketing + local-date helpers
+  lib/backup.ts            export / import a backup, per platform
   lib/reminders.ts         reminder planning + formatting (pure, unit-tested)
   lib/notifications.ts     Capacitor scheduling, permissions, snooze/done actions
   lib/native.ts            back button, status bar — no-ops in a browser

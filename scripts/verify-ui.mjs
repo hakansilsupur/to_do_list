@@ -9,7 +9,7 @@
  */
 import { chromium } from 'playwright-core';
 import { createServer } from 'node:http';
-import { readFile, access } from 'node:fs/promises';
+import { readFile, writeFile, access, mkdir } from 'node:fs/promises';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -60,8 +60,13 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const APK_ORIGIN = `http://127.0.0.1:${server.address().port}/`;
 
+await mkdir(join(ROOT, 'node_modules/.tmp'), { recursive: true });
+
 const browser = await chromium.launch({ executablePath: CHROMIUM });
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+const ctx = await browser.newContext({
+  viewport: { width: 1280, height: 900 },
+  acceptDownloads: true,
+});
 const page = await ctx.newPage();
 const errors = [];
 page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
@@ -255,6 +260,99 @@ await page.waitForTimeout(200);
 check('Clear removes the reminder',
   (await page.locator('input[aria-label="Reminder time"]').inputValue()) === '');
 await page.keyboard.press('Escape');
+
+// ---------- backup: export and import ----------
+await page.locator('.nav-item', { hasText: 'All tasks' }).click();
+await page.waitForTimeout(200);
+const beforeExport = await page.locator('.task').count();
+// Visible rows exclude the collapsed Completed group, so the real total comes from
+// storage — an export that skipped finished tasks would be a broken backup.
+const totalTasks = await page.evaluate(
+  () => JSON.parse(localStorage.getItem('todo:v1:state') || '{"tasks":[]}').tasks.length,
+);
+check('some tasks are hidden in the collapsed Completed group', totalTasks >= beforeExport,
+  `${totalTasks} stored vs ${beforeExport} visible`);
+
+const [download] = await Promise.all([
+  page.waitForEvent('download'),
+  page.locator('.nav-item', { hasText: 'Export backup' }).click(),
+]);
+check('export filename is dated', /^tasks-backup-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename()),
+  download.suggestedFilename());
+
+const exportPath = join(ROOT, 'node_modules/.tmp/exported-backup.json');
+await download.saveAs(exportPath);
+const exported = JSON.parse(await readFile(exportPath, 'utf8'));
+check('export is a tagged payload', exported.app === 'tasks' && exported.schemaVersion === 1);
+check('export contains every task, including completed ones',
+  exported.tasks.length === totalTasks, `${exported.tasks.length} vs ${totalTasks} stored`);
+check('export contains the lists', Array.isArray(exported.lists) && exported.lists.length >= 1);
+
+// A junk file must be refused without touching anything.
+const junkPath = join(ROOT, 'node_modules/.tmp/not-a-backup.json');
+await writeFile(junkPath, 'this is definitely not json');
+await page.locator('.sidebar__file-input').setInputFiles(junkPath);
+await page.waitForTimeout(300);
+check('a junk file is rejected',
+  (await page.locator('.toast__message').innerText()).includes("isn't a Tasks backup"));
+check('no confirm dialog for junk', (await page.locator('.confirm').count()) === 0);
+check('junk changed nothing', (await page.locator('.task').count()) === beforeExport);
+await page.locator('.toast__action').click();
+await page.waitForTimeout(200);
+
+// A smaller valid backup: importing it must replace, not merge.
+const smallPath = join(ROOT, 'node_modules/.tmp/small-backup.json');
+await writeFile(smallPath, JSON.stringify({
+  app: 'tasks',
+  schemaVersion: 1,
+  exportedAt: new Date().toISOString(),
+  lists: [{ id: 'list-personal', name: 'Personal', color: '#3d7bfb' }],
+  tasks: [
+    { id: 'imp-1', title: 'Imported one', notes: '', done: false, dueDate: null,
+      reminder: null, priority: 'high', listId: 'list-personal', subtasks: [],
+      createdAt: new Date().toISOString(), completedAt: null },
+    { id: 'imp-2', title: 'Imported two', notes: '', done: false, dueDate: null,
+      reminder: null, priority: 'none', listId: 'list-personal', subtasks: [],
+      createdAt: new Date().toISOString(), completedAt: null },
+  ],
+}));
+await page.locator('.sidebar__file-input').setInputFiles(smallPath);
+await page.waitForTimeout(300);
+check('a valid backup asks before replacing', (await page.locator('.confirm').count()) === 1);
+const confirmText = await page.locator('.confirm__body').innerText();
+check('the confirm names both counts',
+  confirmText.includes(String(totalTasks)) && confirmText.includes('2'), confirmText);
+
+await page.locator('.confirm .pill', { hasText: 'Cancel' }).click();
+await page.waitForTimeout(250);
+check('cancelling leaves the data alone',
+  (await page.locator('.task').count()) === beforeExport);
+
+await page.locator('.sidebar__file-input').setInputFiles(smallPath);
+await page.waitForTimeout(300);
+await page.locator('.confirm__confirm').click();
+await page.waitForTimeout(400);
+check('replace swaps the data in', (await page.locator('.task').count()) === 2,
+  `${await page.locator('.task').count()} rows`);
+check('imported titles are shown',
+  (await page.locator('.task__title', { hasText: 'Imported one' }).count()) === 1);
+check('imported priority survived',
+  (await page.locator('.task', { hasText: 'Imported one' }).first()
+    .locator('.priority-dot--high').count()) === 1);
+
+await page.reload({ waitUntil: 'networkidle' });
+await page.locator('.nav-item', { hasText: 'All tasks' }).click();
+await page.waitForTimeout(300);
+check('the restored data persists', (await page.locator('.task').count()) === 2);
+
+// Put the fuller backup back so later checks still have data to work with.
+await page.locator('.sidebar__file-input').setInputFiles(exportPath);
+await page.waitForTimeout(300);
+await page.locator('.confirm__confirm').click();
+await page.waitForTimeout(400);
+check('the exported backup restores the original list',
+  (await page.locator('.task').count()) === beforeExport,
+  `${await page.locator('.task').count()} vs ${beforeExport}`);
 
 // ---------- migration from pre-reminder storage ----------
 // The exact shape a v1 build wrote, with no `reminder` key anywhere.

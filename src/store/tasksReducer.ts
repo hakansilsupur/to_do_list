@@ -13,7 +13,9 @@ export type Action =
   | { type: 'delete-subtask'; taskId: string; subtaskId: string }
   | { type: 'add-list'; list: List }
   | { type: 'rename-list'; id: string; name: string }
-  | { type: 'delete-list'; id: string };
+  | { type: 'delete-list'; id: string }
+  /** Restoring a backup: wholesale replacement, already validated by parseState. */
+  | { type: 'replace-state'; state: AppState };
 
 function mapTask(state: AppState, id: string, fn: (task: Task) => Task): AppState {
   let changed = false;
@@ -97,6 +99,9 @@ export function tasksReducer(state: AppState, action: Action): AppState {
         ),
       };
     }
+
+    case 'replace-state':
+      return action.state;
 
     default:
       return state;

@@ -114,6 +114,18 @@ key — means the next APK cannot install over what's on the phone. You have to 
 first, which **erases the app's tasks**: they live in the WebView's private storage, which
 Android deletes with the app.
 
+### Backing up
+
+The app has **Export backup** and **Import backup** in the sidebar under *Data*.
+
+Export writes every list and task to a JSON file. On Android it goes through the system
+share sheet, so you can drop it in Drive, Files or send it to yourself — deliberately not
+into the app's own storage, which Android deletes along with the app. Import replaces
+everything after asking, so it doubles as moving your tasks to another phone.
+
+Back up before anything that reinstalls the app. A file copied out through DevTools (below)
+imports too — the importer accepts both the export format and a raw `todo:v1:state` dump.
+
 ### Rescuing your tasks before an uninstall
 
 Debug builds are debuggable, so the WebView can be inspected from a desktop browser.

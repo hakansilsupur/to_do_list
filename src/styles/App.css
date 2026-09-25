@@ -948,6 +948,66 @@
   background: var(--surface);
 }
 
+/* ---------- Confirm dialog ---------- */
+
+.sidebar__file-input {
+  display: none;
+}
+
+.confirm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 12, 16, 0.55);
+}
+
+.confirm {
+  width: 100%;
+  max-width: 340px;
+  padding: 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.confirm__title {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.confirm__body {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm__actions .pill {
+  min-height: 38px;
+  padding: 8px 16px;
+}
+
+/* Destructive and irreversible, so it reads as such rather than as a default. */
+.confirm__confirm {
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 650;
+}
+
 /* ---------- Toast ---------- */
 
 .toast {

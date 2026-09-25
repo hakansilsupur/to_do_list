@@ -10,7 +10,9 @@ import {
   planNotifications,
   snoozedReminder,
 } from '../src/lib/reminders';
-import type { Reminder, Task } from '../src/types';
+import type { AppState, Reminder, Task } from '../src/types';
+import { buildBackup, backupFilename, readBackup } from '../src/lib/backup';
+import { parseState } from '../src/store/storage';
 
 let pass = 0;
 const failures: string[] = [];
@@ -228,6 +230,88 @@ check('nextOccurrence survives a garbage timestamp',
 check('formatReminder renders something for a future time',
   formatReminder(future, now).length > 0, formatReminder(future, now));
 check('formatReminder is empty for a dead one-off', formatReminder(past, now) === '');
+
+// ---------- backup: export payload and import validation ----------
+
+const sampleState: AppState = {
+  lists: [
+    { id: 'list-personal', name: 'Personal', color: '#3d7bfb' },
+    { id: 'list-work', name: 'Work', color: '#f0973f' },
+  ],
+  tasks: [
+    baseTask({
+      id: 't1',
+      title: 'Ceza itiraz',
+      notes: 'bring the form',
+      dueDate: '2026-10-01',
+      priority: 'high',
+      reminder: { at: '2026-10-01T09:00:00.000Z', repeat: 'week' },
+      subtasks: [{ id: 's1', title: 'print it', done: true }],
+      listId: 'list-work',
+    }),
+    baseTask({ id: 't2', title: 'Kablotv basvur' }),
+  ],
+};
+
+const payload = buildBackup(sampleState);
+check('backup is tagged and versioned',
+  payload.app === 'tasks' && payload.schemaVersion === 1 && payload.exportedAt.length > 0);
+check('backup carries every task and list',
+  payload.tasks.length === 2 && payload.lists.length === 2);
+check('filename is dated', /^tasks-backup-\d{4}-\d{2}-\d{2}\.json$/.test(backupFilename()),
+  backupFilename());
+
+const restored = readBackup(JSON.stringify(payload));
+check('a backup imports back', restored !== null);
+check('round-trip keeps tasks and lists',
+  restored!.tasks.length === 2 && restored!.lists.length === 2);
+
+const t1 = restored!.tasks.find((t) => t.title === 'Ceza itiraz')!;
+check('round-trip keeps the reminder',
+  t1.reminder?.at === '2026-10-01T09:00:00.000Z' && t1.reminder?.repeat === 'week');
+check('round-trip keeps subtasks', t1.subtasks.length === 1 && t1.subtasks[0].done === true);
+check('round-trip keeps priority, notes, due date and list',
+  t1.priority === 'high' && t1.notes === 'bring the form' &&
+    t1.dueDate === '2026-10-01' && t1.listId === 'list-work');
+
+// A raw todo:v1:state dump — what the DevTools rescue route produces — must import too.
+check('a bare {lists,tasks} dump imports',
+  readBackup(JSON.stringify({ lists: sampleState.lists, tasks: sampleState.tasks }))
+    ?.tasks.length === 2);
+
+// Junk must be refused, never thrown on, and never half-applied.
+for (const [name, text] of [
+  ['not json', '{ nope'],
+  ['empty file', ''],
+  ['a bare array', '[1,2,3]'],
+  ['null', 'null'],
+  ['an unrelated object', '{"hello":"world"}'],
+  ['no lists', '{"tasks":[]}'],
+  ['lists of the wrong type', '{"lists":"nope","tasks":[]}'],
+  ['a truncated backup', JSON.stringify(payload).slice(0, 80)],
+] as [string, string][]) {
+  check(`rejects ${name}`, readBackup(text) === null);
+}
+
+// Individually broken rows are dropped, not fatal to the whole import.
+const partly = readBackup(JSON.stringify({
+  lists: sampleState.lists,
+  tasks: [{ title: 'good one' }, { notes: 'no title' }, 'garbage', null, 42],
+}));
+check('drops unusable tasks but keeps the good ones',
+  partly !== null && partly.tasks.length === 1 && partly.tasks[0].title === 'good one',
+  `${partly?.tasks.length}`);
+check('an imported task gets safe defaults',
+  partly!.tasks[0].priority === 'none' && partly!.tasks[0].reminder === null &&
+    partly!.tasks[0].subtasks.length === 0);
+
+// A task pointing at a list the file doesn't contain must not vanish.
+const orphan = parseState({
+  lists: [{ id: 'list-personal', name: 'Personal', color: '#3d7bfb' }],
+  tasks: [{ title: 'orphan', listId: 'list-that-went-away' }],
+});
+check('a task in a missing list falls back to the inbox',
+  orphan?.tasks[0].listId === 'list-personal', orphan?.tasks[0].listId);
 
 console.log(`\n${pass}/${pass + failures.length} checks passed`);
 if (failures.length) {

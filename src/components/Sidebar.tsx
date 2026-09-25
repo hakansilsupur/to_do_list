@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { List, View } from '../types';
 import { INBOX_LIST_ID } from '../store/seed';
 
@@ -10,6 +10,9 @@ type SidebarProps = {
   onAddList: (name: string) => void;
   onDeleteList: (id: string) => void;
   onClose: () => void;
+  onExport: () => void;
+  /** Receives the chosen file's text; the caller validates and confirms. */
+  onImport: (text: string) => void;
   counts: {
     all: number;
     today: number;
@@ -33,10 +36,13 @@ export function Sidebar({
   onAddList,
   onDeleteList,
   onClose,
+  onExport,
+  onImport,
   counts,
 }: SidebarProps) {
   const [newList, setNewList] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const smartViews: { view: View; label: string; icon: string; count: number }[] = [
     { view: { kind: 'today' }, label: 'Today', icon: '☀', count: counts.today },
@@ -157,6 +163,41 @@ export function Sidebar({
               <span className="nav-item__label">New list</span>
             </button>
           )}
+        </div>
+
+        <div className="sidebar__section">
+          <div className="sidebar__heading">Data</div>
+          <button type="button" className="nav-item nav-item--muted" onClick={onExport}>
+            <span className="nav-item__icon" aria-hidden="true">
+              ↥
+            </span>
+            <span className="nav-item__label">Export backup</span>
+          </button>
+          <button
+            type="button"
+            className="nav-item nav-item--muted"
+            onClick={() => fileRef.current?.click()}
+          >
+            <span className="nav-item__icon" aria-hidden="true">
+              ↧
+            </span>
+            <span className="nav-item__label">Import backup</span>
+          </button>
+          {/* Capacitor's WebView implements onShowFileChooser, so this one element
+              opens the Android picker as well as the desktop one. */}
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="sidebar__file-input"
+            aria-label="Choose a backup file"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              // Reset first, so picking the same file twice still fires onChange.
+              event.target.value = '';
+              if (file) onImport(await file.text());
+            }}
+          />
         </div>
 
         <div className="sidebar__footer">

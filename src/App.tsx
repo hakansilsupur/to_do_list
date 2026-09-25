@@ -14,6 +14,8 @@ import {
   type NotificationAction,
 } from './lib/notifications';
 import { snoozedReminder } from './lib/reminders';
+import { exportBackup, readBackup } from './lib/backup';
+import type { AppState } from './types';
 import { QuickAdd } from './components/QuickAdd';
 import { Sidebar } from './components/Sidebar';
 import { TaskGroup } from './components/TaskGroup';
@@ -108,6 +110,37 @@ export default function App() {
   }, []);
 
   useReminders({ tasks, onAction: handleNotificationAction });
+
+  // Restoring a backup replaces everything, so it goes through a confirmation that
+  // names both counts rather than silently swapping the user's data out.
+  const [pendingImport, setPendingImport] = useState<AppState | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  async function handleExport() {
+    const result = await exportBackup(state);
+    setNotice(
+      result.ok
+        ? result.shared
+          ? 'Backup ready to save'
+          : `Exported ${tasks.length} task${tasks.length === 1 ? '' : 's'}`
+        : 'Could not export a backup',
+    );
+  }
+
+  function handleImport(text: string) {
+    const imported = readBackup(text);
+    if (!imported) {
+      setNotice("That file isn't a Tasks backup");
+      return;
+    }
+    setPendingImport(imported);
+  }
 
   // Android 12+ can withhold precise alarm timing; surfaced in the detail drawer.
   const [exactAlarms, setExactAlarms] = useState(false);
@@ -279,6 +312,8 @@ export default function App() {
           dispatch({ type: 'delete-list', id });
           if (view.kind === 'list' && view.listId === id) setView({ kind: 'all' });
         }}
+        onExport={() => void handleExport()}
+        onImport={handleImport}
       />
 
       <main className="main">
@@ -400,6 +435,56 @@ export default function App() {
           onDeleteSubtask={(subtaskId) =>
             dispatch({ type: 'delete-subtask', taskId: selectedTask.id, subtaskId })
           }
+        />
+      )}
+
+      {pendingImport && (
+        <div
+          className="confirm-scrim"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="import-confirm-title"
+        >
+          <div className="confirm">
+            <h2 className="confirm__title" id="import-confirm-title">
+              Restore this backup?
+            </h2>
+            <p className="confirm__body">
+              This replaces your {tasks.length} task{tasks.length === 1 ? '' : 's'} with{' '}
+              {pendingImport.tasks.length} from the file. It can't be undone.
+            </p>
+            <div className="confirm__actions">
+              <button
+                type="button"
+                className="pill"
+                onClick={() => setPendingImport(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="confirm__confirm"
+                onClick={() => {
+                  dispatch({ type: 'replace-state', state: pendingImport });
+                  setSelectedId(null);
+                  setView({ kind: 'all' });
+                  setNotice(`Restored ${pendingImport.tasks.length} tasks`);
+                  setPendingImport(null);
+                }}
+              >
+                Replace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <Toast
+          message={notice}
+          actionLabel="OK"
+          onAction={() => setNotice(null)}
+          onDismiss={() => setNotice(null)}
         />
       )}
 
